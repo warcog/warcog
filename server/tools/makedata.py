@@ -58,5 +58,5 @@ f.write(out)
 f.close()
 
 f = open(sys.argv[4], 'w')
-f.write(header))
+f.write(header)
 f.close()

@@ -32,6 +32,10 @@ python ?= python3
 
 #
 
+outdir ?= bin/
+
+#
+
 flags=-Wall -Wextra -std=gnu11 -fms-extensions -Ishared/ -iquote$(path) -iquotetmp/ \
 -Duse_result="__attribute__((warn_unused_result))" \
 -Dcountof\(x\)="(sizeof(x)/sizeof(*(x)))"
@@ -79,7 +83,7 @@ dep=$(wildcard $(path)/*.h) $(wildcard $(path)/$(target)/*.h) $(addsuffix .h,$(a
 wflags=-D_WIN32_WINNT=0x600 -lws2_32 -lcomctl32 -lgdi32
 xflags=
 
-out ?= bin/$(path)
+out ?= $(outdir)$(path)
 ifeq ($(target),win32)
 flags += $(wflags)
 ext ?= .exe
@@ -104,7 +108,7 @@ ifeq ($(vulkan),1)
 client : flags += -DUSE_VULKAN -lvulkan -Wno-unused-parameter
 client : xflags += -DVK_USE_PLATFORM_XCB_KHR -lX11-xcb
 client : wflags += -DVK_USE_PLATFORM_WIN32_KHR
-client : dep += bin/shaders-vk tmp/shaders-vk.h
+client : dep += $(outdir)shaders-vk tmp/shaders-vk.h
 else
 client : xflags += -lGL
 client : wflags += -lopengl32
@@ -119,7 +123,7 @@ server : path = server
 server : fps ?= 60
 server : port ?= 1337
 server : src += tmp/text.c tmp/gen.c $(wildcard $(map)/*.c)
-server : dep += tmp/text.h tmp/gen.h $(wildcard $(map)/*.h) bin/datamap bin/data tmp/data.h
+server : dep += tmp/text.h tmp/gen.h $(wildcard $(map)/*.h) $(outdir)datamap $(outdir)data tmp/data.h
 server : flags += -iquote$(map)/ -lm
 
 chatserver : path = chatserver
@@ -130,22 +134,22 @@ server chatserver : shared += ip
 server chatserver : src += shared/server.c
 server chatserver : flags += -DFPS=$(fps) -DPORT=$(port)
 
-client chatclient server chatserver : tmp/ bin/ $$(src) $$(dep)
+client chatclient server chatserver : tmp/ $(outdir) $$(src) $$(dep)
 	$(CC) $(libs) $(src) $(flags) -o $(addsuffix $(ext),$(out))
 
-website : bin/ $(wildcard website/*)
-	$(python) website/md_to_html.py bin/ $(wildcard website/*.md)
+website : $(outdir) $(wildcard website/*)
+	$(python) website/md_to_html.py $(outdir) $(wildcard website/*.md)
 
-bin/ :
-	mkdir bin
+$(outdir) :
+	mkdir $(outdir)
 
 tmp/ :
 	mkdir tmp
 
 #client
 
-bin/shaders-vk tmp/shaders-vk.h : client/tools/shaders-vk.py $(wildcard client/shaders/*)
-	$(python) client/tools/shaders-vk.py $(glsl) client/shaders/ bin/shaders-vk tmp/shaders-vk.h
+$(outdir)shaders-vk tmp/shaders-vk.h : client/tools/shaders-vk.py $(wildcard client/shaders/*)
+	$(python) client/tools/shaders-vk.py $(glsl) client/shaders/ $(outdir)shaders-vk tmp/shaders-vk.h
 
 tmp/shaders.c : client/tools/shaders.c client/tools/shaders.py
 	$(python) client/tools/shaders.py client/tools/shaders.c tmp/shaders.c
@@ -168,8 +172,8 @@ tmp/defs : $(wildcard $(map)/*.h) server/defstruct.h tmp/gen.c $(map)/tilemap
 tmp/defdata : tmp/defs
 	tmp/defs tmp/defdata
 
-bin/datamap bin/data tmp/data.h : server/tools/makedata.py tmp/defdata
-	$(python) server/tools/makedata.py $(map)/tilemap tmp/defdata bin/ tmp/data.h
+$(outdir)datamap $(outdir)data tmp/data.h : server/tools/makedata.py tmp/defdata
+	$(python) server/tools/makedata.py $(map)/tilemap tmp/defdata $(outdir) tmp/data.h
 
 #chatclient
 
