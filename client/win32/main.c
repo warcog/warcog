@@ -478,7 +478,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev_inst, LPSTR cmd, int nCmdS
 
     hinst = instance;
 
-    if (!game_init(&game, 1024, 768))
+    if (!game_init(&game, 1024, 768, __argc, __argv))
         goto fail_unregister;
 
     init_done = 1;

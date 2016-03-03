@@ -36,9 +36,10 @@ outdir ?= bin/
 
 #
 
-flags=-Wall -Wextra -std=gnu11 -fms-extensions -Ishared/ -iquote$(path) -iquotetmp/ \
+flags = -Wall -Wextra -std=gnu11 -fms-extensions -Ishared/ -iquote$(path) -iquotetmp/ \
 -Duse_result="__attribute__((warn_unused_result))" \
--Dcountof\(x\)="(sizeof(x)/sizeof(*(x)))"
+-Dcountof\(x\)="(sizeof(x)/sizeof(*(x)))" \
+$(CFLAGS)
 
 ifeq ($(clang),1)
 flags += -Wno-initializer-overrides
@@ -102,7 +103,7 @@ client : src += tmp/shaders.c
 client : src += $(wildcard $(path)/audio/*.c) $(wildcard $(path)/text/*.c) $(wildcard shared/xz/*.c)
 client : dep += $(wildcard $(path)/audio/*.h) $(wildcard $(path)/text/*.h) $(wildcard shared/xz/*.h)
 client : xflags += -lX11 -lopus -lasound -pthread -lm
-client : wflags += -Iinclude -lws2_32 -lgdi32 -lole32 lib/libopus.a -DNAME="L\"warcog\""
+client : wflags += -lws2_32 -lgdi32 -lole32 -DNAME="L\"warcog\""
 
 ifeq ($(vulkan),1)
 client : flags += -DUSE_VULKAN -lvulkan -Wno-unused-parameter
