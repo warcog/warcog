@@ -133,6 +133,9 @@ server chatserver : flags += -DFPS=$(fps) -DPORT=$(port)
 client chatclient server chatserver : tmp/ bin/ $$(src) $$(dep)
 	$(CC) $(libs) $(src) $(flags) -o $(addsuffix $(ext),$(out))
 
+website : bin/ $(wildcard website/*)
+	$(python) website/md_to_html.py bin/ $(wildcard website/*.md)
+
 bin/ :
 	mkdir bin
 
@@ -173,4 +176,4 @@ bin/datamap bin/data tmp/data.h : server/tools/makedata.py tmp/defdata
 tmp/res.res : chatclient/win32/res.rc chatclient/win32/Application.manifest
 	$(windres) chatclient/win32/res.rc tmp/res.res --output-format=coff
 
-.PHONY: client server chatclient chatserver
+.PHONY: client server chatclient chatserver website
