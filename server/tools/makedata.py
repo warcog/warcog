@@ -57,6 +57,6 @@ f = open(sys.argv[3] + 'data', 'wb')
 f.write(out)
 f.close()
 
-f = open(sys.argv[4], 'wb')
-f.write(header.encode('utf-8'))
+f = open(sys.argv[4], 'w')
+f.write(header))
 f.close()

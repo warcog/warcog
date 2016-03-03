@@ -18,6 +18,6 @@ header += '#define map_size (1 << map_shift)\n'
 header += '#define compressed_size %u\n' % 0
 header += '#define inflated_size %u\n' % 0
 
-f = open(sys.argv[2], 'wb')
-f.write(header.encode('utf-8'))
+f = open(sys.argv[2], 'w')
+f.write(header)
 f.close()

@@ -77,8 +77,8 @@ f.write(head)
 f.write(out)
 f.close()
 
-f = open(sys.argv[4], 'wb')
-f.write(str.encode(header))
+f = open(sys.argv[4], 'w')
+f.write(header)
 f.close()
 
 print(header)
