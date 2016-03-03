@@ -1,0 +1,42 @@
+prophet_name Warlock
+prophet_desc A mighty spellcaster
+
+ready_name Join
+ready_desc Join the next round
+
+unready_name Leave
+unready_desc Cancel playing in the next round
+
+dead_name Dead
+dead_desc Only seen by and affected by other dead players
+
+shop_name Dead (shop)
+shop_desc Buy spells before the next round starts
+
+fireball_name Fireball
+fireball_desc Shoot a fireball in target direction\nDamage: 10\nKnockback: {10/11/12/13/14}\nRange: 256\nRadius: 6\nSpeed: 128\nCast time: 0.4\nCooldown: {8/7/6/5/4}\nAlternate cast: shoot 3 fireballs with 80% effectiveness\nFireballs only affect one target\nInteracts with Fireball and Lightning
+
+sacrifice_name Sacrifice
+sacrifice_desc Sacrifice 10 life to remove 10 KP and damage nearby enemies\nDamage: 10\nKnockback: 10\nRadius: 16\nCast time: 0.8\nCooldown: 6\nAlternate cast: enemy positions are mirrored around self before being applying knockback
+
+timeshift_name Time Shift
+timeshift_desc Save current position, life, KP, and knockback and restore them after up to {1.6/2.0/2.4/2.8/3.2}s\nCooldown: {20/18/16/14/12}\nAlternate cast: +1.0s duration and effect is activated as soon as damage is taken\nEffect can be activated early\nDoes not interrupt actions on both cast and activation\nVisual effect and state is not visible to enemies
+timeshift_state About to return back in time
+
+teleport_name Teleport
+teleport_desc Teleport up to 192 distance in target direction\nCast time: 0.5\nCooldown: {12/11/10/9/8}\nAlternate cast: half distance but can use again within 2.0s
+teleport_state Can teleport another time
+
+thrust_name Thrust
+thrust_desc Move in target direction at 384 speed for up to 0.4s or until collision\nDamage: 5\nKnockback: 180\nRadius: 16\nCast time: 0\nCooldown: {14/12/10/8/6}\nAlternate cast: no collision and invulnerable during thrust
+thrust_state Thrusting
+
+windwalk_name Wind Walk
+windwalk_desc Go invisible for up to {3.0/3.3/3.6/3.9/4.2}s or until collision\nFade time: 0.4\nDamage: 5\nKnockback: 180\nRadius: 16\nCooldown: {18/17/16/15/14}\nAlternate cast: no collision and does not end on spell cast (triggers fade time instead)\nDoes not interrupt actions
+
+shield_name Shield
+shield_desc Become shielded for 2.0s\nCooldown: {20/17/14/11}\nAlternate cast: 0.5s duration and half the cooldown\nDoes not interrupt actions
+
+doppel_name Doppelganger
+doppel_desc Confuse the enemy by creating 2 images that mirror your actions\nDuration: {3/4/5/6/7}\nCooldown: {18/17/16/15/14}\nAlternate cast 1: appear at the left of the formation\nAlternate cast 2: appear at the right of the formation\nWhile active, can be cast again to take the position of one of the images, killing it
+
