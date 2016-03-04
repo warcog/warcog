@@ -852,7 +852,7 @@ void pipelines(gfx_t *g) {
     VkPipelineVertexInputStateCreateInfo vi;
     VkPipelineShaderStageCreateInfo stage[3];
     VkGraphicsPipelineCreateInfo pipeline;
-    file_t file;
+    data_t file;
     void *data, *p;
     uint16_t *lengths;
     unsigned i, j;

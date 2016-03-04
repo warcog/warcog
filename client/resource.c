@@ -12,10 +12,10 @@
 
 #define int32(x) (*((uint32_t*)(x)))
 
-bool read_file(file_t *file, const char *path, size_t min_size)
+bool read_file(data_t *file, const char *path, size_t min_size)
 {
     FILE *fp;
-    file_t f;
+    data_t f;
     size_t res;
 
     fp = fopen(path, "rb");
@@ -39,7 +39,7 @@ bool read_file(file_t *file, const char *path, size_t min_size)
     return 1;
 }
 
-void close_file(file_t *file)
+void close_file(data_t *file)
 {
     free(file->data);
 }
@@ -159,7 +159,7 @@ fail_free_sound:
     return 0;
 }
 
-sound_t* read_sound(file_t *file, uint16_t id)
+sound_t* read_sound(data_t *file, uint16_t id)
 {
     uint32_t offset, end;
 
@@ -174,7 +174,7 @@ sound_t* read_sound(file_t *file, uint16_t id)
     return decode(file->data + offset, end - offset);
 }
 
-data_t read_model(file_t *file, uint16_t id)
+data_t read_model(data_t *file, uint16_t id)
 {
     uint32_t offset, end;
 

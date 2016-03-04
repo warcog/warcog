@@ -39,7 +39,6 @@ double time_seconds(uint64_t value)
 #else
     return (double) value / 1000000000.0;
 #endif
-
 }
 
 uint64_t time_msec(uint64_t value)
@@ -50,18 +49,6 @@ uint64_t time_msec(uint64_t value)
     return (value + 500000ul) / 1000000ul;
 #endif
 }
-
-/*bool time_msec(uint64_t value, size_t msec)
-{
-#ifdef WIN32
-    value *= 1000ul;
-    //if (__builtin_mul_overflow(value, 1000ul, &value))
-    //    return 1;
-    return value >= freq.QuadPart * msec;
-#else
-    return value >= msec * 1000000ul;
-#endif
-}*/
 
 /* subtract y from *x, return true if overflow */
 #define sub_of(x, y) ({ \
@@ -96,11 +83,6 @@ void* dp_next(data_t *p, size_t len)
 bool dp_expect(data_t *p, size_t len)
 {
     return !sub_of(&p->len, len);
-}
-
-void dp_skip(data_t *p, size_t len)
-{
-    p->data += len;
 }
 
 bool dp_empty(data_t *p)

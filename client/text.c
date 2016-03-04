@@ -54,7 +54,7 @@ bool text_rasterize(font_t *font, void *data, const uint32_t *sizes, uint8_t cou
     (void) sizes;
     (void) count;
 
-    file_t file;
+    data_t file;
     uint8_t *p;
 
     header_t *header;

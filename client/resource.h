@@ -28,8 +28,8 @@ typedef struct {
     float data[];
 } sound_t;
 
-bool read_file(file_t *file, const char *path, size_t min_size) use_result;
-void close_file(file_t *file);
+bool read_file(data_t *data, const char *path, size_t min_size) use_result;
+void close_file(data_t *data);
 
 bool read_texture_file(texfile_t *file, const char *path) use_result;
 void close_texture_file(texfile_t *file);
@@ -38,8 +38,8 @@ texinfo_t* get_texture_info(texfile_t *file, uint16_t id) use_result;
 bool read_texture(texfile_t *file, const texinfo_t *info, rgba *data) use_result;
 bool copy_texture(texfile_t *file, const texinfo_t *info, rgba *data, uint32_t line_size) use_result;
 
-sound_t* read_sound(file_t *file, uint16_t id) use_result;
-data_t read_model(file_t *file, uint16_t id) use_result;
+sound_t* read_sound(data_t *data, uint16_t id) use_result;
+data_t read_model(data_t *data, uint16_t id) use_result;
 bool load_tileset(texfile_t *file, rgba *data, const int16_t *tileset, size_t max) use_result;
 
 typedef struct {

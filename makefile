@@ -18,7 +18,7 @@ else
 target?=xlib
 endif
 
-#
+# default executables
 
 ifeq ($(target),win32)
 ifeq ($(OS),Windows_NT)
@@ -29,6 +29,7 @@ endif
 endif
 
 python ?= python3
+glsl ?= glslangValidator
 
 #
 
@@ -90,12 +91,6 @@ flags += $(wflags)
 ext ?= .exe
 else
 flags += $(xflags)
-endif
-
-ifeq ($(OS),Windows_NT)
-glsl=glslangValidator
-else
-glsl?=/root/Downloads/glslang/build/StandAlone/glslangValidator
 endif
 
 client : path = client

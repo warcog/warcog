@@ -353,7 +353,7 @@ bool model_load(data_t p, uint16_t loadtex(void*, uint16_t),
         tr_id = dp_next(&p, mdl->nanim);
         rt_id = dp_next(&p, mdl->nanim);
         sc_id = dp_next(&p, mdl->nanim);
-        dp_skip(&p, -(mdl->nanim * 3) & 3);
+        dp_next(&p, -(mdl->nanim * 3) & 3);
 
         tr = dp_next(&p, bone->ntr * sizeof(tr_t));
         rt = dp_next(&p, bone->nrt * sizeof(rt_t));
@@ -375,7 +375,7 @@ bool model_load(data_t p, uint16_t loadtex(void*, uint16_t),
             return 0;
 
         af_id = dp_next(&p, mdl->nanim);
-        dp_skip(&p, -mdl->nanim & 3);
+        dp_next(&p, -mdl->nanim & 3);
 
         af = dp_next(&p, chunk->naf * sizeof(sc_t));
 

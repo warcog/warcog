@@ -26,12 +26,12 @@ static const uint8_t def_sizes[num_defs] = {
 
 #define len(x) (sizeof(x)/sizeof(*(x)))
 
-static int16_t load_sound(game_t *g, file_t *file, uint16_t id, idmap_t *map)
+static int16_t load_sound(game_t *g, data_t *data, uint16_t id, idmap_t *map)
 {
     if (idmap_test(map, &id))
         return id;
 
-    g->audio.sound[map->count] = read_sound(file, id);
+    g->audio.sound[map->count] = read_sound(data, id);
     return idmap_add(map, id); /* add regardless of failure so we don't try again */
 }
 
@@ -85,7 +85,7 @@ static bool loadmdl(void *user, const void *mdl, size_t mdl_size, const uint16_t
     return 1;
 }
 
-static int16_t load_model(game_t *g, file_t *file, texfile_t *texfile, uint16_t id, idmap_t *map,
+static int16_t load_model(game_t *g, data_t *data, texfile_t *texfile, uint16_t id, idmap_t *map,
                           idmap_t *tmap)
 {
     struct args args;
@@ -98,7 +98,7 @@ static int16_t load_model(game_t *g, file_t *file, texfile_t *texfile, uint16_t 
     if (map->count == num_model)
         return -1;
 
-    p = read_model(file, id);
+    p = read_model(data, id);
     if (!model_load(p, loadtex, loadmdl, &args))
         return -1;
 
@@ -113,7 +113,7 @@ void loadmap(game_t *g)
     uint32_t i, j, k;
     const mapdef_t *mapdef;
     texfile_t textures;
-    file_t sounds, models;
+    data_t sounds, models;
 
     atlas_t icons, particles;
     size_t size;
