@@ -9,24 +9,12 @@
 #include <string.h>
 #include <stdbool.h>
 
-static int fixed_mul(int a, int b)
-{
-    if (a < 0)
-        return -(((int64_t)-a * b + 0x8000) >> 16);
-    else
-        return (((int64_t)a * b + 0x8000) >> 16);
-}
-
-static int fixed_mul2(int a, int b)
-{
-    return ((((int64_t) a * b) + (1 << 21)) >> 22);
-}
-
 #define bitmap_width 1024
 #define bitmap_height 1024
 
-#define sublen(x, len) (__builtin_sub_overflow(*(x), (typeof(*(x))) (len), x))
-#define next(p, x, len) (sublen(x, len) ? 0 : ({void *__tmp = *(p); *(p) += (len); __tmp;}))
+//TODO: unicode support (font_t/glyph_t)
+//TODO: format should support 32bit char values and >64k gylphs
+//      (but my perfectly sized structs..., watch out for alignment issues if resizing)
 
 typedef struct {
     uint16_t height, ascender;
@@ -37,7 +25,7 @@ typedef struct {
     uint16_t num_point, advance, ch;
 
     int16_t xmin, xmax, ymin, ymax;
-} xglyph_t;
+} glyphdata_t;
 
 typedef struct {
     uint16_t glyph;
@@ -45,71 +33,63 @@ typedef struct {
 } kern_t;
 
 typedef struct {
-    int16_t x, y;
+    int16_t x, y; /* least significant bit of x -> tag */
 } point_t;
 
-bool text_rasterize(font_t *font, void *data, const uint32_t *sizes, uint8_t count)
-{
-    (void) font;
-    (void) sizes;
-    (void) count;
+enum {
+    max_points = 1024,
+};
 
-    data_t file;
-    uint8_t *p;
+static int fixed_mul(int a, unsigned b)
+{
+    if (a < 0)
+        return -(((int64_t)-a * b + 0x8000) >> 16);
+    else
+        return (((int64_t)a * b + 0x8000) >> 16);
+}
+
+static int apply_size(int a, unsigned b)
+{
+    return ((((int64_t) a * b) + (1 << 21)) >> 22);
+}
+
+static bool render(data_t data, FT_Raster raster, FT_Bitmap *bitmap, atlas_t *atlas,
+                   font_t *font, const unsigned *sizes, unsigned count)
+{
+    FT_Vector points[max_points];
+    char tag[max_points];
+    FT_Outline outline;
+    FT_Raster_Params params;
 
     header_t *header;
-    xglyph_t *g, *glyph;
+    glyphdata_t *g, *glyph;
     kern_t *kern;
     uint16_t *contour;
-    point_t *point;
+    point_t *point, *p;
+    unsigned num_glyph, num_kern, num_contour, num_point;
+    unsigned i, j, k, size, kn, w, h;
+    int xmin, xmax, ymin, ymax;
+    uvec2 pos;
 
-    int num_glyph, num_kern, num_contour, num_point;
-
-    if (!read_file(&file, "font", 0))
-        return 0;
-    p = file.data;
-
-    header = next(&p, &file.len, sizeof(*header));
+    header = dp_read(&data, sizeof(header_t));
     if (!header)
-        goto error;
+        return 0;
 
-    num_glyph = num_kern = num_contour = num_point = 0;
-    glyph = (void*) p;
-    while (file.len) {
-        g = next(&p, &file.len, sizeof(*g));
+    num_kern = num_contour = num_point = 0;
+    glyph = (void*) data.data;
+    for (num_glyph = 0; !dp_empty(&data); num_glyph++) {
+        g = dp_read(&data, sizeof(glyphdata_t));
+        if (!g || !dp_expect(&data, g->num_kern * 4 + g->num_contour * 2 + g->num_point * 4))
+            return 0;
 
-        if (sublen(&file.len, g->num_kern * 4 + g->num_contour * 2 + g->num_point * 4))
-            goto error;
-
-        num_glyph++;
         num_kern += g->num_kern;
         num_contour += g->num_contour;
         num_point += g->num_point;
     }
-    kern = (void*) p;
+
+    kern = (void*) &glyph[num_glyph];
     contour = (void*) &kern[num_kern];
     point = (void*) &contour[num_contour];
-
-    printf("%u %u %u %u\n", num_glyph, num_kern, num_contour, num_point);
-
-    {
-    FT_Raster r;
-    uint64_t pool[768] = {0};
-    FT_Outline outline;
-    FT_Raster_Params params;
-    FT_Bitmap bitmap;
-    char tag[256*4];
-    FT_Vector points[256*4];
-
-    uint32_t size;
-    int i, j, k, kn;
-    point_t *p;
-
-    int x, y, w, h, lineheight;
-    int xmin, xmax, ymin, ymax;
-
-    ft_grays_raster.raster_new(NULL, &r);
-    ft_grays_raster.raster_reset(r, (void*) pool, sizeof(pool));
 
     outline.points = points;
     outline.tags = tag;
@@ -117,29 +97,19 @@ bool text_rasterize(font_t *font, void *data, const uint32_t *sizes, uint8_t cou
 
     params.source = &outline;
     params.flags = FT_RASTER_FLAG_AA;
+    params.target = bitmap;
 
-    bitmap.pixel_mode = FT_PIXEL_MODE_GRAY;
-    bitmap.num_grays  = 256;
-    bitmap.width = bitmap_width;
-    bitmap.rows = bitmap_height;
-    bitmap.pitch = bitmap_width;
-    bitmap.buffer = data;
-
-    memset(bitmap.buffer, 0, bitmap_width * bitmap_width);
-
-    x = y = lineheight = 0;
     for (k = 0; k < count; k++) {
         size = sizes[k];
 
-        font[k].height = fixed_mul2(header->height, size);
-        font[k].y = fixed_mul2(header->ascender, size);
+        font[k].height = apply_size(header->height, size);
+        font[k].y = apply_size(header->ascender, size);
 
         outline.contours = (short*) contour;
         p = point;
-
         kn = 0;
 
-        for (i = 0; i < num_glyph; i++) {
+        for (i = 0; i < num_glyph; i++, outline.contours += g->num_contour) {
             g = &glyph[i];
 
             xmin = ( fixed_mul(g->xmin, size)       >> 6);
@@ -150,197 +120,79 @@ bool text_rasterize(font_t *font, void *data, const uint32_t *sizes, uint8_t cou
             w = xmax - xmin;
             h = ymax - ymin;
 
-            //printf("%u %u\n", g->xmin, g->xmax);
-
-            if (x + w >= 1024) {
-                y += lineheight;
-                lineheight = 0;
-                x = 0;
+            if (!atlas_commit(atlas, &pos, w, h)) {
+                printf("out of space in glyph atlas\n");
+                return 0;
             }
-
-            if (lineheight < h)
-                lineheight = h;
 
             for (j = 0; j < g->num_point; j++, p++) {
                 tag[j] = p->x & 1;
-                points[j].x = fixed_mul(p->x / 2, size) + ((x - xmin) << 6);
-                points[j].y = fixed_mul(p->y, size)     + ((y - ymin) << 6);
+                points[j].x = fixed_mul(p->x / 2, size) + ((pos.x - xmin) << 6);
+                points[j].y = fixed_mul(p->y, size)     + ((pos.y - ymin) << 6);
             }
 
             outline.n_contours = g->num_contour;
             outline.n_points = g->num_point;
 
+            //TODO unicode
             if (g->ch >= ' ' && g->ch < 127) {
                 glyph_t *f = &font[k].glyph[g->ch - ' '];
 
-                f->x = x;
-                f->y = bitmap_height - (y + h);
-                f->advance = fixed_mul2(g->advance, size);
+                f->x = pos.x;
+                f->y = bitmap_height - (pos.y + h);
+                f->advance = apply_size(g->advance, size);
                 f->width = w;
                 f->height = h;
                 f->left = -xmin;
-                f->top = ymax - fixed_mul2(header->ascender, size);
-
-                //f->kern_start = kn;
-                //f->kern_num = g->num_kern;
+                f->top = ymax - apply_size(header->ascender, size);
 
                 for (j = 0; j < g->num_kern; j++) {
-                    xglyph_t *h = &glyph[kern[kn + j].glyph];
+                    glyphdata_t *h = &glyph[kern[kn + j].glyph];
                     if (h->ch >= ' ' && h->ch < 127)
-                        f->kern[h->ch - ' '] = fixed_mul2(kern[kn + j].dist, size);
+                        f->kern[h->ch - ' '] = apply_size(kern[kn + j].dist, size);
                 }
             }
             kn += g->num_kern;
 
-            //if (g->ch >= ' ' && g->ch < 127) {
-            //    int8_t *kn = &font[k].kerning[g->ch - ' '][0];
-            //}
-
-            params.target = &bitmap;
-            ft_grays_raster.raster_render(r, &params);
-
-            outline.contours += g->num_contour;
-            x += w;
+            ft_grays_raster.raster_render(raster, &params);
         }
     }
-    }
 
-error:
-    close_file(&file);
+    return 1;
+}
 
+bool text_rasterize(font_t *font, void *buffer, unsigned height)
+{
+    unsigned sizes[] = {62783, 0x10000 * height / 768};
+    uint64_t pool[768] = {0};
 
-
-
-/*
-    const fontdata_t *fd;
-    const point_t *p;
-    const uint8_t *contours;
-
-    fglyph_t f;
-    int i, j, k;
-
-
-    int x, y, lineheight;
-
-    short contour[16];
-    char tag[256];
-    FT_Vector point[256], point_trans[256];
-    FT_Outline outline;
-    FT_Raster_Params params;
+    FT_Raster raster;
     FT_Bitmap bitmap;
-    int xmin, xmax, ymin, ymax;
-    int txmin, txmax, tymin, tymax;
-    int width, height, size;
-    glyph_t *g;
+    atlas_t atlas;
+    data_t data;
+    bool res;
 
-    ft_grays_raster.raster_new(NULL, &r);
-    ft_grays_raster.raster_reset(r, (void*)pool, sizeof(pool));
+    if (!read_file(&data, "font", 0))
+        return 0;
 
-    outline.points = point_trans;
-    outline.tags = tag;
-    outline.contours = contour;
-    outline.flags = 0;
+    atlas_init(&atlas, bitmap_width, bitmap_height);
+
+    ft_grays_raster.raster_new(0, &raster);
+    ft_grays_raster.raster_reset(raster, (void*) pool, sizeof(pool));
 
     bitmap.pixel_mode = FT_PIXEL_MODE_GRAY;
     bitmap.num_grays  = 256;
     bitmap.width = bitmap_width;
     bitmap.rows = bitmap_height;
     bitmap.pitch = bitmap_width;
+    bitmap.buffer = buffer;
 
-    bitmap.buffer = malloc(bitmap_width * bitmap_width);
-    if (!bitmap.buffer)
-        return 0;
+    memset(bitmap.buffer, 0, bitmap_width * bitmap_width); //TODO
 
-    memset(bitmap.buffer, 0, bitmap_width * bitmap_width);
+    res = render(data, raster, &bitmap, &atlas, font, sizes, num_font);
 
-    params.source = &outline;
-    params.flags = FT_RASTER_FLAG_AA;
-
-    x = 0;
-    y = 0;
-    lineheight = 0;
-
-    fd = &fontdata[0];
-
-    for (k = 0; k < count; k++) {
-        contours = fontdata_contours;
-        p = fontdata_points;
-
-        font[k].height = fixed_mul2(fd->height, sizes[k]);
-        font[k].y = fixed_mul2(fd->y, sizes[k]);
-        font[k].spacewidth = fixed_mul2(fd->spacewidth, sizes[k]);
-
-        for (i = 0; i < 94; i++) {
-            f = fd->glyph[i];
-
-            for (j = 0; j < f.ncontour; j++)
-                contour[j] = *contours++;
-
-            xmin = xmax = ymin = ymax = 0;
-            for (j = 0; j < f.npoint; j++, p++) {
-                tag[j] = p->x & 1;
-                point[j].x = p->x / 2;
-                if (xmin > point[j].x)
-                    xmin = point[j].x;
-
-                if (xmax < point[j].x)
-                    xmax = point[j].x;
-
-                point[j].y = p->y;
-                if (ymin > point[j].y)
-                    ymin = point[j].y;
-
-                if (ymax < point[j].y)
-                    ymax = point[j].y;
-            }
-
-            outline.n_contours = f.ncontour;
-            outline.n_points = f.npoint;
-
-            size = sizes[k];
-            g = &font[k].glyph[i];
-
-            txmin = (fixed_mul(xmin, size) >> 6);
-            txmax = ((fixed_mul(xmax, size) + 63) >> 6);
-            tymin = (fixed_mul(ymin, size) >> 6);
-            tymax = ((fixed_mul(ymax, size) + 63) >> 6);
-
-            width = txmax - txmin;
-            height = tymax - tymin;
-
-            if (x + width >= 1024) {
-                y += lineheight;
-                lineheight = 0;
-                x = 0;
-            }
-
-            if (lineheight < height)
-                lineheight = height;
-
-            g->x = x;
-            g->y = bitmap_height - (y + height) ;
-            g->advance = fixed_mul2(f.advance, size);
-            g->width = width;
-            g->height = height;
-            g->left = txmin;
-            g->top = tymax;
-
-            for (j = 0; j < f.npoint; j++) {
-                point_trans[j].x = fixed_mul(point[j].x, size) + ((x - txmin) << 6);
-                point_trans[j].y = fixed_mul(point[j].y, size) + ((y - tymin) << 6);
-            }
-
-            x += width;
-
-            params.target = &bitmap;
-            ft_grays_raster.raster_render(r, &params);
-        }
-    }
-
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, bitmap_width, bitmap_height, 0, GL_RED, GL_UNSIGNED_BYTE,
-                 bitmap.buffer);
-    free(bitmap.buffer);*/
-    return 1;
+    close_file(&data);
+    return res;
 }
 
 static char* glyph_next(const font_t *font, const char *str, int *size, const glyph_t **g, int *kern)

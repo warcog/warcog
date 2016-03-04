@@ -34,33 +34,36 @@ void close_file(data_t *data);
 bool read_texture_file(texfile_t *file, const char *path) use_result;
 void close_texture_file(texfile_t *file);
 
-texinfo_t* get_texture_info(texfile_t *file, uint16_t id) use_result;
+texinfo_t* get_texture_info(texfile_t *file, uint16_t id);
 bool read_texture(texfile_t *file, const texinfo_t *info, rgba *data) use_result;
 bool copy_texture(texfile_t *file, const texinfo_t *info, rgba *data, uint32_t line_size) use_result;
 
-sound_t* read_sound(data_t *data, uint16_t id) use_result;
-data_t read_model(data_t *data, uint16_t id) use_result;
+sound_t* read_sound(data_t *data, uint16_t id);
+data_t read_model(data_t *data, uint16_t id);
 bool load_tileset(texfile_t *file, rgba *data, const int16_t *tileset, size_t max) use_result;
 
 typedef struct {
-    uint32_t count, max;
+    unsigned count, max;
     int16_t *data;
 } idmap_t;
 
-void idmap_init(idmap_t *map, int16_t *data, size_t max);
-bool idmap_test(idmap_t *map, uint16_t *id) use_result;
-size_t idmap_add(idmap_t *map, uint16_t id);
+void idmap_init(idmap_t *map, int16_t *data, unsigned max);
+bool idmap_test(idmap_t *map, unsigned *id) use_result;
+unsigned idmap_add(idmap_t *map, unsigned id);
 
 typedef struct {
-    uint32_t x, y;
-    uint32_t w, h;
-    rgba *data;
-
-    uint32_t lh;
+    unsigned x, line_height, w, h;
 } atlas_t;
 
-void atlas_init(atlas_t *a, size_t width, size_t height, rgba *data);
-bool atlas_add(atlas_t *a, texfile_t *file, uint16_t id) use_result;
-int16_t atlas_add_mapped(atlas_t *a, texfile_t *file, uint16_t id, int16_t *map);
+void atlas_init(atlas_t *a, unsigned width, unsigned height);
+bool atlas_commit(atlas_t *a, point *p, unsigned width, unsigned height) use_result;
+
+typedef struct {
+    unsigned x, y, w, h, line_height, tile_size;
+    int16_t *map;
+} tatlas_t;
+
+void tatlas_init(tatlas_t *a, unsigned width, unsigned height, unsigned tile_size, int16_t *map);
+int tatlas_add(tatlas_t *a, rgba *data, texfile_t *file, unsigned id);
 
 #endif

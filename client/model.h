@@ -66,7 +66,7 @@ void model_draw(gfx_t *g, const void *mdl, int anim_id, double frame, vec4 teamc
 
 vec3 model_transform(const void *mdl, int anim_id, double frame, int8_t bone, vec3 v);
 
-bool model_load(data_t p, uint16_t loadtex(void*, uint16_t),
+bool model_load(data_t p, unsigned loadtex(void*, unsigned),
                 bool load(void*, const void*, size_t, const uint16_t*, size_t, const void*, size_t),
                 void *user) use_result;
 

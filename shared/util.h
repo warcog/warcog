@@ -17,6 +17,16 @@ typedef struct {
 #define data(data, len) ((data_t){(uint8_t*) data, len})
 #define data_none data(0, 0)
 
+/* subtract y from *x, return true if overflow */
+#define sub_of(x, y) ({ \
+    bool res; \
+    typeof(x) __x = x; \
+    typeof(*(x)) __y = y; \
+    res = *__x < __y; \
+    *__x -= __y; \
+    res; \
+})
+
 void* dp_read(data_t *p, size_t len); /* advance and reduce size */
 void* dp_next(data_t *p, size_t len); /* advance */
 bool dp_expect(data_t *p, size_t len); /* reduce size */

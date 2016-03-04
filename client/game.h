@@ -62,12 +62,6 @@ typedef struct {
 
 //#define msec(x) ((uint64_t)(x) * 1000000)
 
-/* fonts */
-enum {
-    font_ui_big,
-    font_ui,
-};
-
 enum {
     conn_none,
     conn_getinfo,
@@ -139,7 +133,7 @@ typedef struct {
     bool loaded;
 
     void* model[num_model];
-    font_t font[num_text];
+    font_t font[num_font];
 
     int width, height;
 

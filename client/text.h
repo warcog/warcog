@@ -11,8 +11,6 @@ typedef struct {
     uint8_t width, height;
     int8_t left, top;
 
-    //uint16_t kern_start;
-    //uint8_t kern_num;
     uint8_t advance;
 
     int8_t kern[95];
@@ -21,10 +19,15 @@ typedef struct {
 typedef struct {
     uint8_t y, height;
     glyph_t glyph[95];
-    //int8_t kerning[95][95];
 } font_t;
 
-bool text_rasterize(font_t *font, void *data, const uint32_t *sizes, uint8_t count);
+enum {
+    font_ui_big,
+    font_ui,
+    num_font,
+};
+
+bool text_rasterize(font_t *font, void *buffer, unsigned height);
 
 uint32_t text_width(const font_t *font, const char *str);
 uint32_t text_width2(const font_t *font, const char *str, uint32_t *res, int i);
@@ -38,14 +41,5 @@ vert2d_t* text_draw_clip(vert2d_t *v, const font_t *font, const char *str, int x
 
 uint32_t text_height(const font_t *font, const char *str, uint32_t w);
 vert2d_t* text_box(vert2d_t *v, const font_t *font, const char *str, int x, int y, int w, rgba color);
-
-
-/*int loadfont(font_t *font, const int *sizes, int count, const void *data, int len);
-
-int textwidth(const font_t *font, const char *str);
-int textboxheight(const font_t *font, const char *str, int w);
-
-vert2d_t* textverts(vert2d_t *v, const font_t *font, const char *str, int x, int y, uint32_t color);
-vert2d_t* textbox(vert2d_t *v, const font_t *font, const char *str, int px, int y, int w, uint32_t color);*/
 
 #endif

@@ -304,7 +304,7 @@ vec3 model_transform(const void *mdl, int anim_id, double frame, int8_t bone, ve
     return vec3(0.0, 0.0, 0.0);
 }
 
-bool model_load(data_t p, uint16_t loadtex(void*, uint16_t),
+bool model_load(data_t p, unsigned loadtex(void*, unsigned),
                 bool load(void*, const void*, size_t, const uint16_t*, size_t, const void*, size_t),
                 void *user)
 {

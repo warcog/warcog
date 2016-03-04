@@ -7,7 +7,7 @@
 #include "map.h"
 #include "particle.h"
 
-enum { /* enum instead of macro defines */
+enum {
     num_restex = 1024,
     num_tex = (8 + num_restex),
     num_shader = 8,
@@ -15,7 +15,6 @@ enum { /* enum instead of macro defines */
     num_model = 256,
     num_vbo = (8 + num_model * 2),
     num_vao = (8 + num_model),
-    num_text = 2,
 };
 
 enum {

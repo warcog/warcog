@@ -24,9 +24,7 @@ static const uint8_t def_sizes[num_defs] = {
     sizeof(attachmentdef_t),
 };
 
-#define len(x) (sizeof(x)/sizeof(*(x)))
-
-static int16_t load_sound(game_t *g, data_t *data, uint16_t id, idmap_t *map)
+static int16_t load_sound(game_t *g, data_t *data, unsigned id, idmap_t *map)
 {
     if (idmap_test(map, &id))
         return id;
@@ -41,10 +39,10 @@ struct args {
     texfile_t *texfile;
 };
 
-static uint16_t loadtex(void *user, uint16_t tex)
+static unsigned loadtex(void *user, unsigned tex)
 {
     struct args *args = user;
-    uint16_t tid, tid_mapped;
+    unsigned tid, tid_mapped;
     texinfo_t *texinfo;
 
     tid = tex & 0x3FFF;
@@ -85,13 +83,14 @@ static bool loadmdl(void *user, const void *mdl, size_t mdl_size, const uint16_t
     return 1;
 }
 
-static int16_t load_model(game_t *g, data_t *data, texfile_t *texfile, uint16_t id, idmap_t *map,
+static int16_t load_model(game_t *g, data_t *data, texfile_t *texfile, unsigned id, idmap_t *map,
                           idmap_t *tmap)
 {
     struct args args;
     data_t p;
 
     args = (struct args){g, map, tmap, texfile};
+
     if (idmap_test(map, &id))
         return id;
 
@@ -115,7 +114,6 @@ void loadmap(game_t *g)
     texfile_t textures;
     data_t sounds, models;
 
-    atlas_t icons, particles;
     size_t size;
     int32_t len;
 
@@ -125,7 +123,10 @@ void loadmap(game_t *g)
 
     idmap_t sndmap, mdlmap, texmap;
     int16_t soundmap[max_sounds], modelmap[max_models], texturemap[max_textures]; //
-    int16_t iconmap[max_textures];
+
+    tatlas_t atlas;
+    rgba *tex;
+    int16_t idmap[max_textures];
 
     //
     data = malloc(g->inflated);
@@ -195,21 +196,22 @@ void loadmap(game_t *g)
     if (!read_file(&models, "models", max_models * 4))
         goto fail_read_models;
 
-    if (!load_tileset(&textures, g->tmp_rgba, mapdef->tileset, len(mapdef->tileset)))
+    if (!load_tileset(&textures, g->tmp_rgba, mapdef->tileset, countof(mapdef->tileset)))
         goto fail_load_tileset;
     gfx_texture_data(&g->gfx, tex_tiles, g->tmp_rgba, 1024, 1024, 0, 6, 0);
 
     //
-    atlas_init(&icons, 1024, 1024, g->tmp_rgba);
-    memset(iconmap, 0xFF, sizeof(iconmap));
+    //tex = gfx_map(&g->gfx, tex_icons, 1024, 1024, 0, 0, 0);
+    tex = g->tmp_rgba;
+    tatlas_init(&atlas, 1024, 1024, 64, idmap);
 
-    for (i = 0; i < len(mapdef->iconset) && mapdef->iconset[i] >= 0; i++)
-        atlas_add_mapped(&icons, &textures, mapdef->iconset[i], iconmap);
+    for (i = 0; i < countof(mapdef->iconset) && mapdef->iconset[i] >= 0; i++)
+        tatlas_add(&atlas, tex, &textures, mapdef->iconset[i]);
 
     //
-    idmap_init(&sndmap, soundmap, len(soundmap));
-    idmap_init(&mdlmap, modelmap, len(modelmap));
-    idmap_init(&texmap, texturemap, len(texturemap));
+    idmap_init(&sndmap, soundmap, countof(soundmap));
+    idmap_init(&mdlmap, modelmap, countof(modelmap));
+    idmap_init(&texmap, texturemap, countof(texturemap));
 
     for (i = 0; i < mapdef->ndef[entity]; i++) {
         def = idef(g, entity, i);
@@ -217,9 +219,9 @@ void loadmap(game_t *g)
             def->model = load_model(g, &models, &textures, def->model, &mdlmap, &texmap);
 
         if (def->icon >= 0)
-            def->icon = atlas_add_mapped(&icons, &textures, def->icon, iconmap);
+            def->icon = tatlas_add(&atlas, tex, &textures, def->icon);
 
-        for (j = 0; j < len(def->voice); j++)
+        for (j = 0; j < countof(def->voice); j++)
             for (k = 0; k < def->voice[j].count; k++)
                 def->voice[j].sound[k] = load_sound(g, &sounds, def->voice[j].sound[k], &sndmap);
     }
@@ -227,28 +229,27 @@ void loadmap(game_t *g)
     for (i = 0; i < mapdef->ndef[ability]; i++) {
         adef = idef(g, ability, i);
         if (adef->icon >= 0)
-            adef->icon = atlas_add_mapped(&icons, &textures, adef->icon, iconmap);
+            adef->icon = tatlas_add(&atlas, tex, &textures, adef->icon);
     }
 
     for (i = 0; i < mapdef->ndef[state]; i++) {
         sdef = idef(g, state, i);
         if (sdef->icon >= 0)
-            sdef->icon = atlas_add_mapped(&icons, &textures, sdef->icon, iconmap);
+            sdef->icon = tatlas_add(&atlas, tex, &textures, sdef->icon);
     }
 
-    gfx_texture_data(&g->gfx, tex_icons, g->tmp_rgba, 1024, 1024, 0, 0, 0);
-
+    gfx_texture_data(&g->gfx, tex_icons, g->tmp_rgba, 1024, 1024, 0, 6, 0);
+    //gfx_unmap(&g->gfx, tex_icons);
     /* particle textures */
     //TODO
     particledef_t *pdef;
     uint32_t pinfo[256 * 4];
 
-    atlas_init(&particles, 1024, 1024, g->tmp_rgba);
-    memset(iconmap, 0xFF, sizeof(iconmap));
+    tatlas_init(&atlas, 1024, 1024, 64, idmap);
 
     for (i = 0; i < mapdef->ndef[effect + effect_particle]; i++) {
         pdef = edef(g, particle, i);
-        pdef->texture = atlas_add_mapped(&particles, &textures, pdef->texture, iconmap);
+        pdef->texture = tatlas_add(&atlas, tex, &textures, pdef->texture);
         pinfo[i * 4 + 0] =
          (pdef->lifetime << 16) | (pdef->end_frame << 10) | (pdef->start_frame << 4) | pdef->texture;
 
@@ -437,14 +438,13 @@ void game_frame(game_t *g)
 
 static void render_text(game_t *g, int h)
 {
-    uint32_t sizes[] = {62783, 0x10000 * h / 768}; /* font sizes */
     void *data;
 
     data = malloc(1024 * 1024 * 4);
     if (!data)
         return;
 
-    text_rasterize(g->font, data, sizes, num_text);
+    text_rasterize(g->font, data, h);
     gfx_texture_data(&g->gfx, tex_text, data, 1024, 1024, 0, 0, 1);
 
     free(data);

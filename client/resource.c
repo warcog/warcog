@@ -192,26 +192,26 @@ data_t read_model(data_t *file, uint16_t id)
 bool load_tileset(texfile_t *file, rgba *data, const int16_t *tileset, size_t max)
 {
     size_t i;
-    atlas_t atlas;
+    tatlas_t atlas;
 
-    atlas_init(&atlas, 1024, 1024, data);
+    tatlas_init(&atlas, 1024, 1024, 64, 0);
     for (i = 0; i < max && tileset[i] >= 0; i++)
-        if (!atlas_add(&atlas, file, tileset[i]))
+        if (tatlas_add(&atlas, data, file, tileset[i]) < 0)
             return 0;
 
     return 1;
 }
 
-void idmap_init(idmap_t *map, int16_t *data, size_t max)
+void idmap_init(idmap_t *map, int16_t *data, unsigned max)
 {
     map->count = 0;
     map->max = max;
     map->data = data;
 
-    memset(data, 0xFF, sizeof(*data) * max);
+    memset(data, 0xFF, sizeof(*data) * max); //TODO
 }
 
-bool idmap_test(idmap_t *map, uint16_t *id)
+bool idmap_test(idmap_t *map, unsigned *id)
 {
     if (*id >= map->max) {
         *id = -1;
@@ -226,60 +226,89 @@ bool idmap_test(idmap_t *map, uint16_t *id)
     return 0;
 }
 
-size_t idmap_add(idmap_t *map, uint16_t id)
+unsigned idmap_add(idmap_t *map, unsigned id)
 {
     map->data[id] = map->count;
     return map->count++;
 }
 
-void atlas_init(atlas_t *a, size_t width, size_t height, rgba *data)
+void atlas_init(atlas_t *a, unsigned width, unsigned height)
 {
-    a->x = a->y = 0;
+    a->x = 0;
+    a->line_height = 0;
     a->w = width;
     a->h = height;
-    a->data = data;
-
-    a->lh = 0; //note: shouldnt be needed, but getting a warning
 }
 
-bool atlas_add(atlas_t *a, texfile_t *file, uint16_t id)
+bool atlas_commit(atlas_t *a, point *p, unsigned width, unsigned height)
 {
-    const texinfo_t *info;
+    if (a->x + width > a->w) {
+        if (sub_of(&a->h, height))
+            return 0;
+        a->x = 0;
+        a->line_height = height;
+    } else if (a->line_height < height) {
+        if (sub_of(&a->h, height - a->line_height))
+            return 0;
+        a->line_height = height;
+    }
 
-    info = get_texture_info(file, id);
-    if (!info || (info->w % 64) || (info->h % 64) || a->x + info->w > a->w || a->y + info->h > a->h)
-        return 0;
-
-    if (!a->x)
-        a->lh = info->h;
-    else if (info->h != a->lh)
-        return 0;
-
-    if (!copy_texture(file, info, &a->data[a->y * a->w + a->x], a->w))
-        return 0;
-
-    a->x += info->w;
-    if (a->x == a->w)
-        a->x = 0, a->y += info->h;
-
+    *p = point(a->x, a->h);
+    a->x += width;
     return 1;
 }
 
-int16_t atlas_add_mapped(atlas_t *a, texfile_t *file, uint16_t id, int16_t *map)
+void tatlas_init(tatlas_t *a, unsigned width, unsigned height, unsigned tile_size, int16_t *map)
 {
-    uint16_t i;
+    a->x = 0;
+    a->y = 0;
+    a->w = width;
+    a->h = height;
+    a->line_height = 0;
+    a->tile_size = tile_size;
+    a->map = map;
 
-    if (id >= 2048) //TODO
+    if (map)
+        memset(map, 0xFF, sizeof(*map) * max_textures); //TODO
+}
+
+int tatlas_add(tatlas_t *a, rgba *data, texfile_t *file, unsigned id)
+{
+    const texinfo_t *info;
+    unsigned res;
+    bool ignore;
+
+    if (id >= max_textures)
         return -1;
 
-    if (map[id] >= 0)
-        return map[id];
+    if (a->map && a->map[id] >= 0)
+        return a->map[id];
 
-    i = (a->y / 4) | (a->x / 64);
-
-    if (!atlas_add(a, file, id))
+    info = get_texture_info(file, id);
+    if (!info || (info->w % a->tile_size) || (info->h % a->tile_size))
         return -1;
 
-    map[id] = i;
-    return i;
+    if (a->x + info->w > a->w) {
+        if (a->y + a->line_height + info->h > a->h)
+            return -1;
+
+        a->y += a->line_height;
+        a->line_height = info->h;
+        a->x = 0;
+    } else if (a->line_height < info->h) {
+        if (a->y + info->h > a->h)
+            return -1;
+        a->line_height = info->h;
+    }
+
+    res = (((a->w * a->y) / a->tile_size + a->x) / a->tile_size);
+
+    ignore = copy_texture(file, info, &data[a->y * a->w + a->x], a->w);
+    (void) ignore;
+
+    if (a->map)
+        a->map[id] = res;
+
+    a->x += info->w;
+    return res;
 }

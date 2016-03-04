@@ -11,8 +11,8 @@ typedef uint32_t rgba;
 #define rgba(r,g,b,a) ((r) | ((g) << 8) | ((b) << 16) | ((a) << 24))
 
 typedef struct {
-    uint32_t x, y;
-} point;
+    unsigned x, y;
+} uvec2, point;
 #define point(x, y) ((point){x, y})
 
 typedef union {

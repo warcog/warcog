@@ -50,16 +50,6 @@ uint64_t time_msec(uint64_t value)
 #endif
 }
 
-/* subtract y from *x, return true if overflow */
-#define sub_of(x, y) ({ \
-    bool res; \
-    typeof(x) __x = x; \
-    typeof(*(x)) __y = y; \
-    res = *__x < __y; \
-    *__x -= __y; \
-    res; \
-})
-
 void* dp_read(data_t *p, size_t len)
 {
     void *res;
