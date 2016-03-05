@@ -159,34 +159,34 @@ fail_free_sound:
     return 0;
 }
 
-sound_t* read_sound(data_t *file, uint16_t id)
+sound_t* read_sound(data_t data, uint16_t id)
 {
     uint32_t offset, end;
 
     if (id >= max_sounds)
         return 0;
 
-    offset = id ? int32(file->data + (id - 1) * 4) : max_sounds * 4;
-    end = int32(file->data + id * 4);
-    if (!offset || end < offset || end > file->len)
+    offset = id ? int32(data.data + (id - 1) * 4) : max_sounds * 4;
+    end = int32(data.data + id * 4);
+    if (!offset || end < offset || end > data.len)
         return 0;
 
-    return decode(file->data + offset, end - offset);
+    return decode(data.data + offset, end - offset);
 }
 
-data_t read_model(data_t *file, uint16_t id)
+data_t read_model(data_t data, uint16_t id)
 {
     uint32_t offset, end;
 
     if (id >= max_models)
         return data_none;
 
-    offset = id ? int32(file->data + (id - 1) * 4) : max_models * 4;
-    end = int32(file->data + id * 4);
-    if (!offset || end < offset || end > file->len)
+    offset = id ? int32(data.data + (id - 1) * 4) : max_models * 4;
+    end = int32(data.data + id * 4);
+    if (!offset || end < offset || end > data.len)
         return data_none;
 
-    return data(file->data + offset, end - offset);
+    return data(data.data + offset, end - offset);
 }
 
 bool load_tileset(texfile_t *file, rgba *data, const int16_t *tileset, size_t max)
@@ -202,24 +202,26 @@ bool load_tileset(texfile_t *file, rgba *data, const int16_t *tileset, size_t ma
     return 1;
 }
 
-void idmap_init(idmap_t *map, int16_t *data, unsigned max)
+void idmap_init(idmap_t *map, uint16_t *data, unsigned max)
 {
     map->count = 0;
     map->max = max;
     map->data = data;
-
-    memset(data, 0xFF, sizeof(*data) * max); //TODO
 }
 
 bool idmap_test(idmap_t *map, unsigned *id)
 {
-    if (*id >= map->max) {
-        *id = -1;
-        return 1;
+    unsigned i;
+
+    for (i = 0; i < map->count; i++) {
+        if (map->data[i] == *id) {
+            *id = i;
+            return 1;
+        }
     }
 
-    if (map->data[*id] >= 0) {
-        *id = map->data[*id];
+    if (i == map->max) {
+        *id = -1;
         return 1;
     }
 
@@ -228,7 +230,7 @@ bool idmap_test(idmap_t *map, unsigned *id)
 
 unsigned idmap_add(idmap_t *map, unsigned id)
 {
-    map->data[id] = map->count;
+    map->data[map->count] = id;
     return map->count++;
 }
 

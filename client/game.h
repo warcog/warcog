@@ -105,6 +105,8 @@ typedef struct {
     psystem_t particle;
     audio_t audio;
 
+    double pan_edge, pan_mouse, pan_key;
+
     uint64_t time; /* timestamp */
     double smooth; /* frame interpolation value [0,1[ */
 
@@ -132,7 +134,7 @@ typedef struct {
     uint8_t fps;
     bool loaded;
 
-    void* model[num_model];
+    void* model[max_models];
     font_t font[num_font];
 
     int width, height;
@@ -196,7 +198,6 @@ typedef struct {
 
     /* tmp buffer (used for: texture loading, ..)*/
     uint8_t __attribute__ ((aligned (16))) tmp[256 * 256 * 4]; //tmp[4096 * 24];
-    rgba __attribute__ ((aligned (16))) tmp_rgba[1024 * 1024]; //share space with other large arrays?
 } game_t;
 
 extern const uint8_t builtin_target[];

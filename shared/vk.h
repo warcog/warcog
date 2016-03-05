@@ -7,6 +7,7 @@
 
 #include <vulkan/vulkan.h>
 #include <string.h>
+#include "macros.h"
 
 #undef _WINDOWS_
 #undef HINSTANCE
@@ -195,20 +196,6 @@
     vkCreateSemaphore(cmd, &info, 0, semap); \
 })
 
-/*#define FE_1(WHAT, X) WHAT(X)
-#define FE_2(WHAT, X, ...) WHAT(X)FE_1(WHAT, __VA_ARGS__)
-#define FE_3(WHAT, X, ...) WHAT(X)FE_2(WHAT, __VA_ARGS__)
-#define FE_4(WHAT, X, ...) WHAT(X)FE_3(WHAT, __VA_ARGS__)
-#define FE_5(WHAT, X, ...) WHAT(X)FE_4(WHAT, __VA_ARGS__)
-//... repeat as needed
-
-#define GET_MACRO(_1,_2,_3,_4,_5,NAME,...) NAME
-#define for_each(action,...) \
-  GET_MACRO(__VA_ARGS__,FE_5,FE_4,FE_3,FE_2,FE_1)(action,__VA_ARGS__)
-
-#define __named_arg(x) .x,
-#define __named_arg_expand(...) for_each(__named_arg, __VA_ARGS__)*/
-
 #define vk_create_instance(instp, ...) ({ \
     VkInstanceCreateInfo info = { \
         .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO, \
@@ -250,11 +237,21 @@
 //#define VK_KHR_WIN_SURFACE_EXTENSION_NAME VK_KHR_XLIB_SURFACE_EXTENSION_NAME
 //#endif*/
 
-#define vk_destroy(objx, obj) _Generic((obj), \
+#define vk_destroy(...) _Generic(M_GET_LAST(__VA_ARGS__), \
     VkShaderModule : vkDestroyShaderModule, \
     VkSemaphore : vkDestroySemaphore, \
+    VkInstance : vkDestroyInstance, \
+    VkDevice : vkDestroyDevice, \
+    VkBuffer : vkDestroyBuffer, \
+    VkSwapchainKHR : vkDestroySwapchainKHR, \
+    VkImageView : vkDestroyImageView, \
+    VkRenderPass : vkDestroyRenderPass, \
+    VkSampler : vkDestroySampler, \
+    VkDeviceMemory : vkFreeMemory, \
+    VkImage : vkDestroyImage, \
+    VkFramebuffer : vkDestroyFramebuffer, \
     VkSurfaceKHR : vkDestroySurfaceKHR) \
-    (objx, obj, 0)
+    (__VA_ARGS__, 0)
 
 #define vk_create_device(phys, devicep, ...) ({ \
     VkDeviceCreateInfo info = { \
@@ -313,13 +310,6 @@
     }; \
     vkCreateBuffer(device, &info, 0, bufferp); \
 })
-
-#define vk_destroy_buffer(dev, buf) \
-    vkDestroyBuffer(dev, buf, 0)
-
-
-#define vk_destroy_swapchain(device, swapchain) \
-    vkDestroySwapchainKHR(device, swapchain, 0)
 
 /* command buffers */
 
@@ -403,9 +393,6 @@
     VkImage : vkBindImageMemory) \
     (dev, obj, mem, 0)
 
-#define vk_free(dev, mem) \
-    vkFreeMemory(dev, mem, 0)
-
 #define vk_map(dev, mem, datapp) \
     vkMapMemory(dev, mem, 0, VK_WHOLE_SIZE, 0, datapp)
 
@@ -422,6 +409,9 @@
     } \
     err; \
 })
+
+#define vk_next_image(dev, sc, sema, pcurr) \
+    vkAcquireNextImageKHR(dev, sc, UINT64_MAX, sema, 0, pcurr)
 
 typedef struct {
     VkImage image;

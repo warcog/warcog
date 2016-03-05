@@ -15,19 +15,15 @@ layout(location = 0) out vec4 frag;
 void main()
 {
     vec4 tmp;
-    vec2 c;
 
-    c = coord;
-    //c.y = 1.0 - c.y;
-
-    tmp = vec4(1.0, 1.0, 1.0, 1.0);
+    tmp = color;
     if (textured == 1.0) {
-        tmp *= texture(tex_text, c);
+        tmp *= vec4(1.0, 1.0, 1.0, texture(tex_text, coord).r);
     } else if (textured == 2.0) {
-        tmp *= texture(tex_icons, c);
+        tmp *= texture(tex_icons, coord);
     } else if (textured == 3.0) {
-        tmp *= texture(tex_minimap, c);
+        tmp *= texture(tex_minimap, coord);
     }
 
-    frag = tmp * color;
+    frag = tmp;
 }

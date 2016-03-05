@@ -94,20 +94,20 @@ flags += $(xflags)
 endif
 
 client : path = client
-client : src += tmp/shaders.c
 client : src += $(wildcard $(path)/audio/*.c) $(wildcard $(path)/text/*.c) $(wildcard shared/xz/*.c)
 client : dep += $(wildcard $(path)/audio/*.h) $(wildcard $(path)/text/*.h) $(wildcard shared/xz/*.h)
 client : xflags += -lX11 -lopus -lasound -pthread -lm
 client : wflags += -lws2_32 -lgdi32 -lole32 -DNAME="L\"warcog\""
 
 ifeq ($(vulkan),1)
-client : flags += -DUSE_VULKAN -lvulkan -Wno-unused-parameter
+client : flags += -DUSE_VULKAN -lvulkan
 client : xflags += -DVK_USE_PLATFORM_XCB_KHR -lX11-xcb
 client : wflags += -DVK_USE_PLATFORM_WIN32_KHR
 client : dep += $(outdir)shaders-vk tmp/shaders-vk.h
 else
 client : xflags += -lGL
 client : wflags += -lopengl32
+client : dep += $(outdir)shaders-gl tmp/shaders-gl.h
 endif
 
 chatclient : path = chatclient
@@ -144,14 +144,11 @@ tmp/ :
 
 #client
 
-$(outdir)shaders-vk tmp/shaders-vk.h : client/tools/shaders-vk.py $(wildcard client/shaders/*)
-	$(python) client/tools/shaders-vk.py $(glsl) client/shaders/ $(outdir)shaders-vk tmp/shaders-vk.h
+$(outdir)shaders-gl tmp/shaders-gl.h : client/tools/shaders-gl.py $(wildcard client/shaders-gl/*)
+	$(python) client/tools/shaders-gl.py client/shaders-gl/ $(outdir)shaders-gl tmp/shaders-gl.h
 
-tmp/shaders.c : client/tools/shaders.c client/tools/shaders.py
-	$(python) client/tools/shaders.py client/tools/shaders.c tmp/shaders.c
-
-tmp/font.c : client/tools/font client/tools/font.py
-	$(python) client/tools/font.py client/tools/font tmp/font.c
+$(outdir)shaders-vk tmp/shaders-vk.h : client/tools/shaders-vk.py $(wildcard client/shaders-vk/*)
+	$(python) client/tools/shaders-vk.py $(glsl) client/shaders-vk/ $(outdir)shaders-vk tmp/shaders-vk.h
 
 #server
 

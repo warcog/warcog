@@ -21,7 +21,6 @@
 #include <errno.h>
 #include <netdb.h>
 
-
 #define EVENT_MASK (ButtonPressMask | ButtonReleaseMask | PointerMotionMask \
                     | LeaveWindowMask | EnterWindowMask \
                     | KeyPressMask | KeyReleaseMask | StructureNotifyMask)
@@ -210,8 +209,8 @@ VkResult create_window(int width, int height, VkInstance inst, VkSurfaceKHR *sur
     XStoreName(display, win, "warcog");
     XMapWindow(display, win);
 
-    //return vk_create_surface(inst, surface, .dpy = display, .window = win);
-    err = vk_create_surface_xcb(inst, surface, .connection = XGetXCBConnection(display), .window = win);
+    err = vk_create_surface_xcb(inst, surface, .connection = XGetXCBConnection(display),
+                                .window = win);
     if (err)
         XDestroyWindow(display, win);
     return err;
@@ -333,6 +332,8 @@ int main(int argc, char *argv[])
 
     width = 1024;
     height = 768;
+
+    audio_init(&g->audio);
 
     if (!thread(alsa_thread, &g->audio))
         return 0;

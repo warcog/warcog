@@ -5,7 +5,6 @@
 #include <stdio.h>
 #include <util.h>
 #include "math.h"
-#include "model.h"
 
 enum {
     max_models = 1024,
@@ -38,16 +37,16 @@ texinfo_t* get_texture_info(texfile_t *file, uint16_t id);
 bool read_texture(texfile_t *file, const texinfo_t *info, rgba *data) use_result;
 bool copy_texture(texfile_t *file, const texinfo_t *info, rgba *data, uint32_t line_size) use_result;
 
-sound_t* read_sound(data_t *data, uint16_t id);
-data_t read_model(data_t *data, uint16_t id);
+sound_t* read_sound(data_t data, uint16_t id);
+data_t read_model(data_t data, uint16_t id);
 bool load_tileset(texfile_t *file, rgba *data, const int16_t *tileset, size_t max) use_result;
 
 typedef struct {
     unsigned count, max;
-    int16_t *data;
+    uint16_t *data;
 } idmap_t;
 
-void idmap_init(idmap_t *map, int16_t *data, unsigned max);
+void idmap_init(idmap_t *map, uint16_t *data, unsigned max);
 bool idmap_test(idmap_t *map, unsigned *id) use_result;
 unsigned idmap_add(idmap_t *map, unsigned id);
 

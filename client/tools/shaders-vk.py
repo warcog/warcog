@@ -67,7 +67,7 @@ for path in glob.glob(sys.argv[2] + '*.vert'):
     count += 2 + geom
     i = i + 1
 
-header += '    so_max,\n'
+header += '    num_shader,\n'
 header += '};\n'
 header += '#define shader_hasgeom %d\n' % hasgeom
 header += '#define shader_objcount %d\n' % count

@@ -27,11 +27,12 @@ static void readsamples(float *dest, sound_t *sound, uint32_t i, uint32_t nsampl
     memcpy(dest, sound->data + i, nsample * 4);
 }
 
-static void mix(audio_t *a, ref_t ref, source_t *src, sample_t *buf, float *samples, uint32_t nsample)
+static void mix(audio_t *a, ref_t ref, float gain, source_t *src, sample_t *buf,
+                float *samples, uint32_t nsample)
 {
     int i;
     vec3 dir, pos;
-    float distance, ev, az, delta, gain, dirfact = 1.0;
+    float distance, ev, az, delta, dirfact = 1.0;
     sound_t *sound;
 
     if (!src->playing)
@@ -60,7 +61,8 @@ static void mix(audio_t *a, ref_t ref, source_t *src, sample_t *buf, float *samp
         ev = 0.0; az = 0.0;
     }
 
-    gain = src->volume ? (float) src->volume / 256.0 : 1.0;
+    if (src->volume)
+        gain *= (float) src->volume / 256.0;
 
     if (src->moving) {
         delta = hrtf_calcfadetime(src->lastgain, gain, src->lastdir.v, dir.v);
@@ -110,15 +112,24 @@ void audio_getsamples(audio_t *a, sample_t *res, float *buf, uint32_t samples)
 {
     uint32_t i;
     ref_t ref;
+    float volume;
 
     memset(res, 0, samples * sizeof(*res));
 
     lock(&a->lock);
     ref = a->ref;
+    volume = a->volume;
     unlock(&a->lock);
 
     for (i = 0; i < 256; i++)
-        mix(a, ref, &a->source[i], res, buf, samples);
+        mix(a, ref, volume, &a->source[i], res, buf, samples);
+}
+
+void audio_volume(audio_t *a, float volume)
+{
+    lock(&a->lock);
+    a->volume = volume;
+    unlock(&a->lock);
 }
 
 void audio_listener(audio_t *a, ref_t ref)
@@ -152,8 +163,6 @@ int audio_play(audio_t *a, uint32_t sound_id, vec3 pos, bool loop, uint8_t volum
     src->moving = 0;
     src->playing = 1;
 
-    //printf("play %u (%u)\n", sound_id, a->sound[sound_id]->nsample);
-
     return id;
 }
 
@@ -180,11 +189,9 @@ void audio_stop(audio_t *a, uint32_t id)
     a->nsource--;
 }
 
-
-
 void audio_init(audio_t *a)
 {
-    (void) a;
+    a->volume = 1.0;
 }
 
 void audio_cleanup(audio_t *a)

@@ -3,8 +3,6 @@
 #include <string.h>
 #include <assert.h>
 
-#include "resource.h"
-
 #ifndef USE_VULKAN
 
 bool create_window(int width, int height);
@@ -22,19 +20,7 @@ void swap_buffers(void);
 #include <GL/gl.h>
 #endif
 
-#if 0 //TODO
-#define glUniform1fv glUniform1dv
-#define glUniform2fv glUniform2dv
-#define glUniform3fv glUniform3dv
-#define glUniform4fv glUniform4dv
-#define glUniformMatrix4fv glUniformMatrix4dv
-#endif
-
-typedef struct {
-    const char *vert, *geom, *frag;
-} shaderdata_t;
-
-extern const shaderdata_t shaderdata[];
+#include <stdlib.h>
 
 static void debug_infolog(GLuint shader, const char *data)
 {
@@ -66,7 +52,7 @@ static bool compile_shader(GLuint shader, const char *data)
     return 1;
 }
 
-static bool shader_load(shader_t *res, shaderdata_t data)
+static bool shader_load(shader_t *res, const char *dvert, const char *dgeom, const char *dfrag)
 {
     GLuint prog, vert, geom, frag;
     GLint status;
@@ -75,23 +61,23 @@ static bool shader_load(shader_t *res, shaderdata_t data)
     if (!vert)
         return 0;
 
-    if (!compile_shader(vert, data.vert))
+    if (!compile_shader(vert, dvert))
         goto EXIT_DELETE_VERT;
 
     frag = glCreateShader(GL_FRAGMENT_SHADER);
     if (!frag)
         goto EXIT_DELETE_VERT;
 
-    if (!compile_shader(frag, data.frag))
+    if (!compile_shader(frag, dfrag))
         goto EXIT_DELETE_FRAG;
 
     geom = 0;
-    if (data.geom) {
+    if (dgeom) {
         geom = glCreateShader(GL_GEOMETRY_SHADER);
         if (!geom)
             goto EXIT_DELETE_FRAG;
 
-        if (!compile_shader(geom, data.geom))
+        if (!compile_shader(geom, dgeom))
             goto EXIT_DELETE_GEOM;
     }
 
@@ -139,10 +125,14 @@ EXIT_DELETE_VERT:
     return 0;
 }
 
-bool gfx_init(gfx_t *g, int w, int h)
+bool gfx_init(gfx_t *g, unsigned w, unsigned h)
 {
     unsigned i;
     const shader_t *s;
+    data_t file;
+    uint16_t *lengths;
+    void *data;
+    const char *vert, *geom, *frag;
 
     if (!create_window(w, h))
         return 0;
@@ -151,9 +141,32 @@ bool gfx_init(gfx_t *g, int w, int h)
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glEnable(GL_BLEND);
 
-    for (i = 0; i < num_shader; i++)
-        if (!shader_load(&g->shader[i], shaderdata[i]))
-            goto fail;
+    if (!read_file(&file, "shaders-gl", 0))
+        assert(0);
+
+    lengths = data = file.data;
+
+    if (!dp_read(&file, shader_objcount * 2))
+        assert(0);
+
+    for (i = 0; i < num_shader; i++) {
+        vert = dp_read(&file, *lengths++);
+        assert(vert);
+
+        frag = dp_read(&file, *lengths++);
+        assert(frag);
+
+        geom = 0;
+        if (shader_hasgeom & (1 << i)) {
+            geom = dp_read(&file, *lengths++);
+            assert(geom);
+        }
+
+        if (!shader_load(&g->shader[i], vert, geom, frag))
+            goto fail; //TODO
+    }
+
+    free(data);
 
     s = &g->shader[so_post];
     glUseProgram(s->prog);
@@ -168,23 +181,17 @@ bool gfx_init(gfx_t *g, int w, int h)
     glUseProgram(s->prog);
     glUniform1i(s->var1, 1);
 
-    s = &g->shader[so_mdl];
+    s = &g->shader[so_model];
     g->uniform_outline = glGetUniformLocation(s->prog, "outline");
+    g->uniform_layer = glGetUniformLocation(s->prog, "layer");
     g->uniform_rot = glGetUniformLocation(s->prog, "r");
     g->uniform_trans = glGetUniformLocation(s->prog, "d");
 
-    glGenBuffers(num_vbo, g->vbo);
-    glGenVertexArrays(num_vao, g->vao);
-    glGenTextures(num_tex, g->tex);
-    glGenFramebuffers(num_fbo, g->fbo);
+    glGenBuffers(countof(g->vbo), g->vbo);
+    glGenVertexArrays(countof(g->vao), g->vao);
+    glGenTextures(countof(g->tex), g->tex);
+    glGenFramebuffers(countof(g->fbo), g->fbo);
     glGenRenderbuffers(1, &g->depth);
-
-    /* default texture parameters */
-    for (i = 0; i < countof(g->tex); i++) {
-        glBindTexture(GL_TEXTURE_2D, g->tex[i]);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    }
 
     /* 2d */
     glBindBuffer(GL_ARRAY_BUFFER, g->vbo[vo_2d]);
@@ -225,15 +232,15 @@ bool gfx_init(gfx_t *g, int w, int h)
     glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, GL_FALSE, 8, (void*) 4);
 
     /* */
-    gfx_texture_data(g, tex_screen0, 0, w, h, 0, 0, 0);
-    gfx_texture_data(g, tex_screen1, 0, w, h, 0, 0, 0);
+    for (i = 0; i < 2; i++) {
+        glBindTexture(GL_TEXTURE_2D, g->tex[i ? tex_screen1 : tex_screen0]);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+    }
+
     glBindRenderbuffer(GL_RENDERBUFFER, g->depth);
     glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT16, w, h);
-
-    gfx_texture_data(g, tex_minimap, 0, 1024, 1024, 0, 0, 0);
-
-    glBindFramebuffer(GL_FRAMEBUFFER, g->fbo[1]);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, g->tex[tex_minimap], 0);
 
     glBindFramebuffer(GL_FRAMEBUFFER, g->fbo[0]);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, g->tex[tex_screen0], 0);
@@ -247,7 +254,7 @@ fail:
     return 0;
 }
 
-bool gfx_resize(gfx_t *g, int w, int h)
+bool gfx_resize(gfx_t *g, unsigned w, unsigned h)
 {
     glBindTexture(GL_TEXTURE_2D, g->tex[tex_screen0]);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0);
@@ -262,24 +269,32 @@ bool gfx_resize(gfx_t *g, int w, int h)
 
 void gfx_done(gfx_t *g)
 {
-    int i;
+    unsigned i;
 
     for (i = 0; i < num_shader; i++)
         glDeleteProgram(g->shader[i].prog);
 
-    glDeleteBuffers(num_vbo, g->vbo);
-    glDeleteVertexArrays(num_vao, g->vao);
-    glDeleteTextures(num_tex, g->tex);
-    glDeleteFramebuffers(num_fbo, g->fbo);
+    glDeleteBuffers(countof(g->vbo), g->vbo);
+    glDeleteVertexArrays(countof(g->vao), g->vao);
+    glDeleteTextures(countof(g->tex), g->tex);
+    glDeleteFramebuffers(countof(g->fbo), g->fbo);
     glDeleteRenderbuffers(1, &g->depth);
 
     destroy_window();
 }
 
-void gfx_render_minimap(gfx_t *g, int w)
+void gfx_render_minimap(gfx_t *g, unsigned w)
 {
     const shader_t *s;
     float scale;
+
+    glBindTexture(GL_TEXTURE_2D, g->tex[tex_minimap]);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, w, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, g->fbo[1]);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,g->tex[tex_minimap],0);
 
     s = &g->shader[so_minimap];
     scale = 1.0 / w;
@@ -297,14 +312,14 @@ void gfx_render_minimap(gfx_t *g, int w)
     glViewport(0, 0, w, w);
 
     glBindFramebuffer(GL_FRAMEBUFFER, g->fbo[1]);
-    glBindVertexArray(g->vao[vo_null]);
+    glBindVertexArray(g->vao[num_vao]);
     glDrawArrays(GL_POINTS, 0, 1);
 
     glEnable(GL_BLEND);
 }
 
-void gfx_mdl_data(gfx_t *g, size_t id, const uint16_t *index, const void *vert,
-                 size_t nindex, size_t nvert)
+void gfx_mdl_data(gfx_t *g, unsigned id, const uint16_t *index, const void *vert,
+                 unsigned nindex, unsigned nvert)
 {
     glBindVertexArray(g->vao[vo_mdl + id]);
 
@@ -328,7 +343,7 @@ void gfx_particleinfo(gfx_t *g, GLuint *info, uint32_t count)
 {
     const shader_t *s;
 
-    s = &g->shader[so_part];
+    s = &g->shader[so_particle];
     glUseProgram(s->prog);
     glUniform4uiv(s->var1, count, info);
 }
@@ -340,8 +355,8 @@ void gfx_mapverts(gfx_t *g, mapvert_t *vert, uint32_t nvert)
 }
 
 void gfx_begin_draw(gfx_t *g, uint32_t w, uint32_t h, float *matrix,
-                    mapvert2_t *mv, size_t mcount,
-                    psystem_t *p, vert2d_t *v, size_t count)
+                    mapvert2_t *mv, unsigned mcount,
+                    psystem_t *p, vert2d_t *v, unsigned count)
 {
     glClearColor(0.0, 0.0, 0.0, 0.0);
     glClearDepth(1.0);
@@ -379,7 +394,7 @@ void gfx_finish_draw(gfx_t *g)
     vec2 mat;
     float sc;
 
-    s = &g->shader[so_sel];
+    s = &g->shader[so_mapx];
     glUseProgram(s->prog);
     glUniformMatrix4fv(s->matrix, 1, GL_FALSE, g->matrix);
     glBindVertexArray(g->vao[vo_sel]);
@@ -389,7 +404,7 @@ void gfx_finish_draw(gfx_t *g)
 
     sc = (float) g->h / g->w;
 
-    s = &g->shader[so_part];
+    s = &g->shader[so_particle];
     glUseProgram(s->prog);
     glUniformMatrix4fv(s->matrix, 1, GL_FALSE, g->matrix);
     glUniform1fv(s->var0, 1, &sc);
@@ -410,7 +425,7 @@ void gfx_finish_draw(gfx_t *g)
 
     mat = vec2(1.0 / g->w, 1.0 / g->h);
     glUniform2fv(s->matrix, 1, &mat.x);
-    glBindVertexArray(g->vao[vo_null]);
+    glBindVertexArray(g->vao[num_vao]);
     glDrawArrays(GL_POINTS, 0, 1);
 
     /* */
@@ -461,13 +476,14 @@ void gfx_map_draw(gfx_t *g, uint32_t offset, uint32_t count)
 
 void gfx_mdl_begin(gfx_t *g)
 {
-    glUseProgram(g->shader[so_mdl].prog);
+    glUseProgram(g->shader[so_model].prog);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, g->tex[tex_mdl]);
 }
 
-void gfx_mdl(gfx_t *g, size_t id, float *matrix)
+void gfx_mdl(gfx_t *g, unsigned id, float *matrix)
 {
     glBindVertexArray(g->vao[vo_mdl + id]);
-    glUniformMatrix4fv(g->shader[so_mdl].matrix, 1, GL_FALSE, matrix);
+    glUniformMatrix4fv(g->shader[so_model].matrix, 1, GL_FALSE, matrix);
 }
 
 void gfx_mdl_outline(gfx_t *g, vec3 color)
@@ -488,19 +504,19 @@ void gfx_mdl_params(gfx_t *g, vec4 *rot, vec4 *tr_sc, uint8_t count, vec4 color)
 {
     glUniform4fv(g->uniform_rot, count, rot->v);
     glUniform4fv(g->uniform_trans, count, tr_sc->v);
-
-    glBindTexture(GL_TEXTURE_2D, 0);
-    glUniform4fv(g->shader[so_mdl].var0, 1, &color.x);
+    glUniform4fv(g->shader[so_model].var0, 1, &color.x);
 }
 
 void gfx_mdl_texture(gfx_t *g, uint16_t tex, vec4 teamcolor)
 {
     const float v[5] = {0.0, 0.0, 0.0, 0.0, 1.0};
+    float layer;
 
-    glUniform4fv(g->shader[so_mdl].var1, 1, (tex&0x8000) ? &teamcolor.x : ((tex&0x4000) ? v : v + 1));
+    glUniform4fv(g->shader[so_model].var1, 1,
+                (tex & 0x8000) ? &teamcolor.x : ((tex & 0x4000) ? v : v + 1));
 
-    tex &= 0x3FFF;
-    glBindTexture(GL_TEXTURE_2D, tex == 0x3FFF ? 0 : g->tex[tex_res + tex]);
+    layer = tex & 0x3FFF;
+    glUniform1fv(g->uniform_layer, 1, &layer);
 }
 
 void gfx_mdl_draw(gfx_t *g, uint32_t start, uint32_t end)
@@ -509,43 +525,132 @@ void gfx_mdl_draw(gfx_t *g, uint32_t start, uint32_t end)
     glDrawElements(GL_TRIANGLES, end - start, GL_UNSIGNED_SHORT, (void*)(size_t)(start * 2));
 }
 
-void gfx_texture_data(gfx_t *g, size_t id, void *data, size_t width, size_t height,
-                      uint8_t filter, uint8_t mipmap, uint8_t fmt)
+void gfx_texture(gfx_t *g, unsigned id, unsigned width, unsigned height, unsigned layers,
+                 unsigned filter, unsigned mipmap, unsigned format)
 {
-    (void) filter;
-
     static const GLint swizzle[] = {GL_ONE, GL_ONE, GL_ONE, GL_RED};
-    int format, internal;
+    unsigned target, fmt, internal;
+    texture_t *tex;
 
-    format = (fmt == 2) ? GL_RG_INTEGER : fmt ? GL_RED : GL_RGBA;
-    internal = (fmt == 2) ? GL_RG8UI : format;
+    tex = &g->texinfo[id];
 
-    glBindTexture(GL_TEXTURE_2D, g->tex[id]);
-    if (fmt == 1)
-        glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swizzle);
+    target = layers ? GL_TEXTURE_2D_ARRAY : GL_TEXTURE_2D;
+    fmt = (format == format_rg_int) ? GL_RG_INTEGER :
+          (format == format_alpha) ? GL_RED :
+          GL_RGBA;
+    internal = (format == format_rg_int) ? GL_RG8UI : fmt;
+
+    glBindTexture(target, g->tex[id]);
+
+    if (format == format_alpha)
+        glTexParameteriv(target, GL_TEXTURE_SWIZZLE_RGBA, swizzle);
     if (mipmap) {
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, mipmap);
+        glTexParameteri(target, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST);
+        glTexParameteri(target, GL_TEXTURE_MAX_LEVEL, mipmap);
+    } else {
+        glTexParameteri(target, GL_TEXTURE_MIN_FILTER, filter ? GL_LINEAR : GL_NEAREST);
     }
-    glTexImage2D(GL_TEXTURE_2D, 0, internal, width, height, 0, format, GL_UNSIGNED_BYTE, data);
+    glTexParameteri(target, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+    if (layers)
+        glTexImage3D(target, 0, internal, width, height, layers, 0, fmt, GL_UNSIGNED_BYTE, 0);
+    else
+        glTexImage2D(target, 0, internal, width, height, 0, fmt, GL_UNSIGNED_BYTE, 0);
     if (mipmap)
-        glGenerateMipmap(GL_TEXTURE_2D);
+        glGenerateMipmap(target);
+
+    tex->width = width;
+    tex->height = height;
+    tex->layers = layers;
+    tex->format = format;
 }
 
-void gfx_texture_mdl(gfx_t *g, size_t id, void *data, size_t width, size_t height)
+void* gfx_map(gfx_t *g, unsigned id)
 {
-    gfx_texture_data(g, tex_res + id, data, width, height, 0, 0, 0);
+    texture_t *tex;
+    unsigned size_per_pixel, layers;
+    void *data;
+
+    tex = &g->texinfo[id];
+
+    size_per_pixel = (tex->format == format_rg_int) ? 2 :
+                     (tex->format == format_alpha) ? 1 :
+                     4;
+    layers = tex->layers ? tex->layers : 1;
+
+    data = realloc(g->map, tex->width * tex->height * layers * size_per_pixel);
+    if (data)
+        g->map = data;
+
+    return data;
+}
+
+void gfx_unmap(gfx_t *g, unsigned id)
+{
+    gfx_copy(g, id, g->map, 0);
+}
+
+void gfx_copy(gfx_t *g, unsigned id, void *data, unsigned size)
+{
+    (void) size;
+
+    texture_t *tex;
+    unsigned fmt, target;
+
+    tex = &g->texinfo[id];
+
+    target = tex->layers ? GL_TEXTURE_2D_ARRAY : GL_TEXTURE_2D;
+    fmt = (tex->format == format_rg_int) ? GL_RG_INTEGER :
+          (tex->format == format_alpha) ? GL_RED :
+          GL_RGBA;
+
+    glBindTexture(target, g->tex[id]);
+    if (tex->layers)
+        glTexSubImage3D(target, 0, 0, 0, 0, tex->width, tex->height, tex->layers,
+                        fmt, GL_UNSIGNED_BYTE, g->map);
+    else
+        glTexSubImage2D(target, 0, 0, 0, tex->width, tex->height, fmt, GL_UNSIGNED_BYTE, data);
 }
 
 #else
 
+#define rgba_format VK_FORMAT_R8G8B8A8_UNORM
+#define alpha_format VK_FORMAT_R8_UNORM
+#define depth_format VK_FORMAT_D16_UNORM
+
+struct uniform_data {
+    matrix4_t MVP;
+    vec2 matrix;
+    float var0, texture;
+    vec4 team_color;
+    vec4 color;
+
+    matrix4_t m0;
+    vec4 r0[126];
+    vec4 d0[126];
+
+    uint32_t info[256 * 4];
+};
+#define uniform_offset(x) offsetof(struct uniform_data, x)
+#define uniform_size sizeof(struct uniform_data)
+
 VkResult create_window(int width, int height, VkInstance inst, VkSurfaceKHR *surface);
 void destroy_window(VkInstance inst, VkSurfaceKHR surface);
 
-static void init_swapchain(gfx_t *g, uint32_t w, uint32_t h) {
-    uint32_t i, count;
+static void destroy_swapchain(gfx_t *g)
+{
+    vk_destroy(g->device, g->sc_view[0]);
+    vk_destroy(g->device, g->sc_view[1]);
+    vk_destroy(g->device, g->swapchain);
+}
+
+static VkResult set_swapchain(gfx_t *g, unsigned w, unsigned h)
+{
+    unsigned count;
     VkResult err;
     VkSwapchainKHR swapchain;
+    VkImage image[2];
+    VkImageView view[2];
 
     err = vk_create_swapchain(g->device, &swapchain,
         .surface = g->surface,
@@ -559,33 +664,47 @@ static void init_swapchain(gfx_t *g, uint32_t w, uint32_t h) {
         .imageArrayLayers = 1,
         .imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
         .presentMode = VK_PRESENT_MODE_IMMEDIATE_KHR, //TODO choose
-        .oldSwapchain = g->swapchain,
+        .oldSwapchain = 0, //g->swapchain TODO destroying old swapchain=buggy?
         .clipped = 1,
     );
-    assert(!err);
+    if (err)
+        return err;
 
-    if (g->swapchain)
-        vk_destroy_swapchain(g->device, g->swapchain);
-
-    g->swapchain = swapchain;
+    //TODO verify that image count is 2..
 
     count = 2;
-    err = vk_get_images(g->device, g->swapchain, &count, g->sc_image);
-    assert(!err && count == 2);
+    err = vk_get_images(g->device, swapchain, &count, image);
+    if (err)
+        goto fail_destroy_sc;
 
-    for (i = 0; i < count; i++) {
-        err = vk_create_view(g->device, &g->sc_view[i],
-                            .format = g->fmt.format,
-                            .image = g->sc_image[i]);
-        assert(!err);
-    }
+    err = vk_create_view(g->device, &view[0], .format = g->fmt.format, .image = image[0]);
+    if (err)
+        goto fail_destroy_sc;
+
+    err = vk_create_view(g->device, &view[1], .format = g->fmt.format, .image = image[1]);
+    if (err)
+        goto fail_destroy_view;
+
+    //if (g->swapchain)
+    //    destroy_swapchain(g);
+
+    g->swapchain = swapchain;
+    g->sc_image[0] = image[0];
+    g->sc_image[1] = image[1];
+    g->sc_view[0] = view[0];
+    g->sc_view[1] = view[1];
+    return 0;
+
+fail_destroy_view:
+    vk_destroy(g->device, view[0]);
+fail_destroy_sc:
+    vk_destroy(g->device, swapchain);
+    return err;
 }
 
-VkResult allocate(gfx_t *g, VkDeviceMemory *res, VkMemoryRequirements *reqs,
-                  bool visible)
+static VkResult allocate(gfx_t *g, VkDeviceMemory *res, VkMemoryRequirements *reqs, bool visible)
 {
-    uint32_t bits;
-    unsigned i;
+    unsigned bits, i;
 
     for (i = 0, bits = reqs->memoryTypeBits; i < 32; i++, bits >>= 1) {
         if (!(bits & 1))
@@ -601,55 +720,75 @@ VkResult allocate(gfx_t *g, VkDeviceMemory *res, VkMemoryRequirements *reqs,
     return VK_ERROR_FORMAT_NOT_SUPPORTED;
 }
 
-VkResult create_image(gfx_t *g, VkImage *res_image, VkDeviceMemory *res_mem,
-                      uint32_t width, uint32_t height, uint32_t layers, VkFormat format,
-                      VkImageTiling tiling, VkImageUsageFlags usage, bool visible)
+static VkResult set_texture(gfx_t *g, texture_t *tex, unsigned width, unsigned height,
+                            unsigned layers, unsigned format)
 {
-    VkResult err;
     VkImage image;
-    VkMemoryRequirements mem_reqs;
     VkDeviceMemory mem;
+    VkImageView view;
 
-    err = vk_create_image(g->device, &image,
-                         .imageType = VK_IMAGE_TYPE_2D,
-                         .format = format,
-                         .extent = {width, height, 1},
-                         .mipLevels = 1,
-                         .arrayLayers = layers,
-                         .samples = VK_SAMPLE_COUNT_1_BIT,
-                         .tiling = tiling,
-                         .usage = usage);
-    assert(!err);
+    VkImageUsageFlags usage;
+    VkFormat fmt;
+    VkImageTiling tiling;
+    VkImageAspectFlags flags;
+    VkMemoryRequirements mem_reqs;
+    VkResult err;
+
+    usage = (format == format_depth_render) ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT :
+            (format == format_rgba_render) ? (VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+            VK_IMAGE_USAGE_SAMPLED_BIT) :
+            VK_IMAGE_USAGE_SAMPLED_BIT;
+
+    fmt = (format == format_depth_render) ? depth_format :
+          (format == format_alpha) ? VK_FORMAT_R8_UNORM :
+          (format == format_rg_int) ? VK_FORMAT_R8G8_UINT :
+          (format == format_rgba_render) ? g->fmt.format :
+          VK_FORMAT_R8G8B8A8_UNORM;
+
+    flags = (format == format_depth_render) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+    tiling = (format >= format_rgba_render) ? VK_IMAGE_TILING_OPTIMAL : VK_IMAGE_TILING_LINEAR;
+
+    err = vk_create_image(g->device, &image, .imageType = VK_IMAGE_TYPE_2D, .format = fmt,
+                         .extent = {width, height, 1}, .mipLevels = 1, .arrayLayers = layers,
+                         .samples = VK_SAMPLE_COUNT_1_BIT, .tiling = tiling, .usage = usage);
+    if (err)
+        return err;
 
     vk_mem_reqs(g->device, image, &mem_reqs);
 
-    err = allocate(g, &mem, &mem_reqs, visible);
-    assert(!err);
+    err = allocate(g, &mem, &mem_reqs, (format < format_rgba_render));
+    if (err)
+        goto fail_image;
 
     err = vk_bind(g->device, image, mem);
-    assert(!err);
+    if (err)
+        goto fail_mem;
 
-    *res_image = image;
-    *res_mem = mem;
+    //TODO swizzling instead of shader op
+    err = vk_create_view(g->device, &view, .image = image, .format = fmt,
+                         .subresourceRange.aspectMask = flags);
+    if (err)
+        goto fail_mem;
+
+    if (tex->image) {
+        vk_destroy(g->device, tex->view); //not needed
+        vk_destroy(g->device, tex->image);
+        vk_destroy(g->device, tex->mem);
+    }
+
+    tex->image = image;
+    tex->mem = mem;
+    tex->view = view;
     return 0;
+
+fail_mem:
+    vk_destroy(g->device, mem);
+fail_image:
+    vk_destroy(g->device, image);
+    return err;
 }
 
-void depth(gfx_t *g, uint32_t w, uint32_t h)
-{
-    VkResult err;
-
-    err = create_image(g, &g->depth_image, &g->depth_mem, w, h, 1, depth_format,
-                 VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, 0);
-    assert(!err);
-
-    err = vk_create_view(g->device, &g->depth_view,
-                   .image = g->depth_image,
-                   .format = depth_format,
-                   .subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT);
-    assert(!err);
-}
-
-VkResult render_pass(VkDevice dev, VkRenderPass *res, VkFormat format, VkFormat depth)
+static VkResult render_pass(VkDevice dev, VkRenderPass *res, VkFormat format, VkFormat depth)
 {
     static const VkAttachmentReference color_reference = {
         .attachment = 0, .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
@@ -681,7 +820,7 @@ VkResult render_pass(VkDevice dev, VkRenderPass *res, VkFormat format, VkFormat 
                                 .pSubpasses = &subpass);
 }
 
-VkResult create_buffer(gfx_t *g, buffer_t *res, VkDeviceSize size, VkBufferUsageFlags usage)
+static VkResult create_buffer(gfx_t *g, buffer_t *res, VkDeviceSize size, VkBufferUsageFlags usage)
 {
     VkResult err;
     VkBuffer buf;
@@ -690,71 +829,32 @@ VkResult create_buffer(gfx_t *g, buffer_t *res, VkDeviceSize size, VkBufferUsage
 
     err = vk_create_buffer(g->device, &buf, .size = size, .usage = usage);
     if (err)
-        goto fail;
+        return err;
 
     vk_mem_reqs(g->device, buf, &mem_reqs);
 
     err = allocate(g, &mem, &mem_reqs, 1);
     if (err)
-        goto fail_destroy_buffer;
+        goto fail_buf;
 
     err = vk_bind(g->device, buf, mem);
     if (err)
-        goto fail_free;
+        goto fail_mem;
 
     res->buf = buf;
     res->mem = mem;
     return 0;
 
-fail_free:
-    vk_free(g->device, mem);
-fail_destroy_buffer:
-    vk_destroy_buffer(g->device, buf);
-fail:
+fail_mem:
+    vk_destroy(g->device, mem);
+fail_buf:
+    vk_destroy(g->device, buf);
     return err;
 }
 
-void create_texture(gfx_t *g, uint32_t width, uint32_t height, texture_t *tex)
+static void pipelines(gfx_t *g)
 {
-    VkImage image;
-    VkDeviceMemory mem;
-    VkImageView view;
-
-    VkImageUsageFlags usage;
-    VkResult err;
-
-    usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-
-    create_image(g, &image, &mem, width, height, 1, tex_format, VK_IMAGE_TILING_LINEAR, usage, 0);
-
-    err = vk_create_view(g->device, &view, .image = image, .format = tex_format);
-    assert(!err);
-
-    tex->image = image;
-    tex->mem = mem;
-    tex->view = view;
-}
-
-void databuffers(gfx_t *g)
-{
-    VkResult err;
-
-    err = create_buffer(g, &g->uniform, uniform_size,
-                        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-    assert(!err);
-
-    err = create_buffer(g, &g->verts2d, 16 * 4096, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
-    assert(!err);
-
-    err = create_buffer(g, &g->particles, 16 * 4096, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
-    assert(!err);
-
-    err = create_buffer(g, &g->vbo[vo_sel], 16 * 4096, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
-    assert(!err);
-}
-
-void pipelines(gfx_t *g) {
-    //TODO cant render without SCISSOR??
+    //TODO cant render without scissor??
     static const VkDynamicState states[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
     static const VkPipelineDynamicStateCreateInfo dyns = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
@@ -855,13 +955,11 @@ void pipelines(gfx_t *g) {
     data_t file;
     void *data, *p;
     uint16_t *lengths;
-    unsigned i, j;
-    size_t len;
+    unsigned i, j, len;
 
     VkDescriptorSetLayoutBinding layout[9];
-    VkDescriptorImageInfo sampler[3];
     VkDescriptorBufferInfo uniform;
-    VkWriteDescriptorSet writes[4];
+    VkWriteDescriptorSet write;
 
     layout[0] = vk_layout_uniform(0, 1, VK_SHADER_STAGE_ALL_GRAPHICS);
     for (i = 1; i < countof(layout); i++)
@@ -884,17 +982,8 @@ void pipelines(gfx_t *g) {
     assert(!err);
 
     uniform = vk_uniform(g->uniform.buf, uniform_size);
-    sampler[0] = vk_sampler(g->sampler[0], g->render_tex.view);
-    sampler[1] = vk_sampler(g->sampler[0], g->model_tex.view);
-    sampler[2] = vk_sampler(g->sampler[0], g->tex[tex_minimap].view);
-
-    writes[0] = vk_write_uniform(g->set, 0, 1, &uniform);
-    writes[1] = vk_write_sampler(g->set, 3, 0, 1, &sampler[0]);
-    writes[2] = vk_write_sampler(g->set, 4, 0, 1, &sampler[1]);
-    writes[3] = vk_write_sampler(g->set, 8, 0, 1, &sampler[2]);
-
-    vk_write(g->device, countof(writes), writes);
-
+    write = vk_write_uniform(g->set, 0, 1, &uniform);
+    vk_write(g->device, 1, &write);
 
     if (!read_file(&file, "shaders-vk", 0))
         assert(0);
@@ -909,7 +998,7 @@ void pipelines(gfx_t *g) {
 
     pipeline = vk_pipeline(&vi, &ia, &rs, &ds, &cb, &dyns, &ms, &vp, g->pipeline_layout, stage);
 
-    for (i = 0; i < so_max; i++) {
+    for (i = 0; i < countof(g->pipeline); i++) {
         printf("shader %u\n", i);
 
         switch (i) {
@@ -973,36 +1062,43 @@ void pipelines(gfx_t *g) {
     close_file(&file);
 }
 
-void framebuffers(gfx_t *g, uint32_t w, uint32_t h)
+static VkResult set_framebuffers(gfx_t *g, unsigned w, unsigned h)
 {
     VkImageView attachments[2];
+    VkFramebuffer fb[3];
     VkResult err;
-    unsigned i;
+
+    err = vk_create_fb(g->device, &fb[0], .attachmentCount = 1, .pAttachments = &g->sc_view[0],
+                           .width = w, .height = h);
+    if (err)
+        return err;
+
+    err = vk_create_fb(g->device, &fb[1], .attachmentCount = 1, .pAttachments = &g->sc_view[1],
+                           .width = w, .height = h);
+    if (err)
+        goto fail_destroy0;
 
     attachments[0] = g->render_tex.view;
-    attachments[1] = g->depth_view;
+    attachments[1] = g->depth.view;
 
-    err = vk_create_fb(g->device, &g->fb[2], .attachmentCount = 2, .pAttachments = attachments,
+    err = vk_create_fb(g->device, &fb[2], .attachmentCount = 2, .pAttachments = attachments,
                        .width = w, .height = h);
-    assert(!err);
+    if (err)
+        goto fail_destroy1;
 
-    attachments[0] = g->tex[tex_minimap].view;
+    g->fb[0] = fb[0];
+    g->fb[1] = fb[1];
+    g->fb[2] = fb[2];
+    return 0;
 
-    err = vk_create_fb(g->device, &g->fb[3], .attachmentCount = 1, .pAttachments = attachments,
-                   .width = 1024, .height = 1024);
-    assert(!err);
-
-    for (i = 0; i < 2; i++) {
-        attachments[0] = g->sc_view[i];
-        err = vk_create_fb(g->device, &g->fb[i], .attachmentCount = 1, .pAttachments = attachments,
-                       .width = w, .height = h);
-        assert(!err);
-    }
+fail_destroy0:
+    vk_destroy(g->device, g->fb[0]);
+fail_destroy1:
+    vk_destroy(g->device, g->fb[1]);
+    return err;
 }
 
-#include <stdlib.h>
-
-bool gfx_init(gfx_t *g, int w, int h)
+bool gfx_init(gfx_t *g, unsigned w, unsigned h)
 {
     static const char* ext[] = {VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_WIN_SURFACE_EXTENSION_NAME};
     static const char* sc_ext[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
@@ -1019,6 +1115,7 @@ bool gfx_init(gfx_t *g, int w, int h)
     VkResult err;
     VkDeviceQueueCreateInfo queue;
     VkFormatProperties props;
+    VkPhysicalDevice gpu;
     uint32_t count, queue_index;
     //unsigned i;
 
@@ -1031,10 +1128,13 @@ bool gfx_init(gfx_t *g, int w, int h)
 
     /* gpu choice: take first gpu */
     count = 1;
-    err = vk_enum_gpu(g->inst, &count, &g->gpu);
+    err = vk_enum_gpu(g->inst, &count, &gpu);
     assert(!err && count);
 
-    vkGetPhysicalDeviceFormatProperties(g->gpu, tex_format, &props);
+    vkGetPhysicalDeviceFormatProperties(gpu, rgba_format, &props);
+    assert(props.linearTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT);
+
+    vkGetPhysicalDeviceFormatProperties(gpu, alpha_format, &props);
     assert(props.linearTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT);
 
     /* */
@@ -1046,26 +1146,25 @@ bool gfx_init(gfx_t *g, int w, int h)
     queue = vk_queue_info(queue_index, &queue_priority);
 
     /* */
-    err = vk_create_device(g->gpu, &g->device,
+    err = vk_create_device(gpu, &g->device,
                            .queueCreateInfoCount = 1,
                            .pQueueCreateInfos = &queue,
                            .enabledExtensionCount = 1,
                            .ppEnabledExtensionNames = sc_ext);
     assert(!err);
 
-
     vk_get_queue(g->device, queue_index, &g->queue);
 
     /* format choice */
     count = 1;
-    err = vkGetPhysicalDeviceSurfaceFormatsKHR(g->gpu, g->surface, &count, &g->fmt);
+    err = vkGetPhysicalDeviceSurfaceFormatsKHR(gpu, g->surface, &count, &g->fmt);
     assert((!err || err == VK_INCOMPLETE) && count);
 
     if (g->fmt.format == VK_FORMAT_UNDEFINED)
         g->fmt.format = VK_FORMAT_B8G8R8A8_UNORM;
 
     /* */
-    vk_mem_props(g->gpu, &g->mem_props);
+    vk_mem_props(gpu, &g->mem_props);
 
     err = render_pass(g->device, &g->pass[0], g->fmt.format, depth_format);
     assert(!err);
@@ -1073,30 +1172,26 @@ bool gfx_init(gfx_t *g, int w, int h)
     err = render_pass(g->device, &g->pass[1], g->fmt.format, 0);
     assert(!err);
 
-    init_swapchain(g, w, h);
-    depth(g, w, h);
-
     err = vk_create_sampler(g->device, &g->sampler[0]);
     assert(!err);
 
     err = vk_create_sampler(g->device, &g->sampler[1], .minFilter = VK_FILTER_LINEAR);
     assert(!err);
 
-    create_texture(g, w, h, &g->render_tex);
-
-    create_texture(g, 1024, 1024, &g->tex[tex_minimap]);
-
-    create_image(g, &g->model_tex.image, &g->model_tex.mem, 256, 256, 256, tex_format,
-                 VK_IMAGE_TILING_LINEAR, VK_IMAGE_USAGE_SAMPLED_BIT, 1);
-
-    err = vk_create_view(g->device, &g->model_tex.view, .image = g->model_tex.image, .format = tex_format);
+    err = create_buffer(g, &g->uniform, uniform_size,
+                        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
     assert(!err);
 
-    databuffers(g);
+    err = create_buffer(g, &g->verts2d, 16 * 4096, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    assert(!err);
 
-    pipelines(g);
+    err = create_buffer(g, &g->particles, 16 * 4096, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    assert(!err);
 
-    framebuffers(g, w, h);
+    err = create_buffer(g, &g->vbo[vo_sel], 16 * 4096, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    assert(!err);
+
+    pipelines(g); //TODO
 
     err = vk_create_cmdpool(g->device, &g->cmd_pool, .queueFamilyIndex = queue_index);
     assert(!err);
@@ -1104,20 +1199,79 @@ bool gfx_init(gfx_t *g, int w, int h)
     err = vk_create_cmd(g->device, &g->cmd, .commandPool = g->cmd_pool, .commandBufferCount = 1);
     assert(!err);
 
+    err = set_swapchain(g, w, h);
+    assert(!err);
+
+    err = set_texture(g, &g->depth, w, h, 1, format_depth_render);
+    assert(!err);
+
+    err = set_texture(g, &g->render_tex, w, h, 1, format_rgba_render);
+    assert(!err);
+
+    err = set_framebuffers(g, w, h);
+    assert(!err);
+
+    VkDescriptorImageInfo sampler;
+    VkWriteDescriptorSet write;
+
+    sampler = vk_sampler(g->sampler[0], g->render_tex.view);
+    write = vk_write_sampler(g->set, 3, 0, 1, &sampler);
+    vk_write(g->device, 1, &write);
+
     printf("gfx_init\n");
 
-    g->sc_curr = 0;
+    g->sc_frame = 0;
 
     return 1;
 }
 
-bool gfx_resize(gfx_t *g, int w, int h)
+bool gfx_resize(gfx_t *g, unsigned w, unsigned h)
 {
+    VkResult err;
+
+    vk_destroy(g->device, g->fb[0]);
+    vk_destroy(g->device, g->fb[1]);
+    vk_destroy(g->device, g->fb[2]);
+
+    err = set_swapchain(g, w, h);
+    assert(!err);
+
+    err = set_texture(g, &g->depth, w, h, 1, format_depth_render);
+    assert(!err);
+
+    err = set_texture(g, &g->render_tex, w, h, 1, format_rgba_render);
+    assert(!err);
+
+    err = set_framebuffers(g, w, h);
+    assert(!err);
+
+    VkDescriptorImageInfo sampler;
+    VkWriteDescriptorSet write;
+
+    sampler = vk_sampler(g->sampler[0], g->render_tex.view);
+    write = vk_write_sampler(g->set, 3, 0, 1, &sampler);
+    vk_write(g->device, 1, &write);
+
+    g->w = w;
+    g->h = h;
+
+    printf("resize\n");
+
+    g->sc_frame = 0;
+
     return 1;
 }
 
 void gfx_done(gfx_t *g)
 {
+    vk_destroy(g->device, g->sampler[0]);
+    vk_destroy(g->device, g->sampler[1]);
+    destroy_swapchain(g);
+    vk_destroy(g->device, g->pass[0]);
+    vk_destroy(g->device, g->pass[1]);
+    vk_destroy(g->device);
+    destroy_window(g->inst, g->surface);
+    vk_destroy(g->inst);
 }
 
 static const VkClearValue clear_values[2] = {
@@ -1125,9 +1279,31 @@ static const VkClearValue clear_values[2] = {
     {.depthStencil = {1.0, 0.0}},
 };
 
-void gfx_render_minimap(gfx_t *g, int w)
+static void write_sampler(gfx_t *g, VkImageView view, unsigned binding, unsigned filter)
+{
+    VkDescriptorImageInfo sampler;
+    VkWriteDescriptorSet write;
+
+    sampler = vk_sampler(g->sampler[filter], view);
+    write = vk_write_sampler(g->set, binding, 0, 1, &sampler);
+    vk_write(g->device, 1, &write);
+}
+
+void gfx_render_minimap(gfx_t *g, unsigned w)
 {
     VkResult err;
+
+    if (g->fb[3])
+        vk_destroy(g->device, g->fb[3]);
+
+    err = set_texture(g, &g->tex[tex_minimap], w, w, 1, format_rgba_render);
+    assert(!err);
+
+    write_sampler(g, g->tex[tex_minimap].view, 8, filter_none);
+
+    err = vk_create_fb(g->device, &g->fb[3], .attachmentCount = 1,
+                       .pAttachments = &g->tex[tex_minimap].view, .width = w, .height = w);
+    assert(!err);
 
     err = vk_begin_cmd(g->cmd);
     assert(!err);
@@ -1197,24 +1373,18 @@ void gfx_map_draw(gfx_t *g, uint32_t offset, uint32_t count)
 
 void gfx_mdl_outline(gfx_t *g, vec3 color)
 {
+    (void) g;
+    (void) color;
 }
 
 void gfx_mdl_outline_off(gfx_t *g)
 {
+    (void) g;
 }
 
-/*
-const shader_t *s;
-
-    s = &g->shader[so_sel];
-
-    glBindVertexArray(g->vao[vo_sel]);
-    glDrawArrays(GL_POINTS, 0, count);
-*/
-
 void gfx_begin_draw(gfx_t *g, uint32_t w, uint32_t h, float *matrix,
-                    mapvert2_t *mv, size_t mcount,
-                    psystem_t *p, vert2d_t *v, size_t count)
+                    mapvert2_t *mv, unsigned mcount,
+                    psystem_t *p, vert2d_t *v, unsigned count)
 {
     VkResult err;
     void *data;
@@ -1269,6 +1439,7 @@ void gfx_finish_draw(gfx_t *g)
     VkResult err;
     VkSemaphore semaphore;
     VkCommandBuffer cmd;
+    unsigned frame;
 
     cmd = g->cmd;
 
@@ -1293,23 +1464,9 @@ void gfx_finish_draw(gfx_t *g)
         .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
         .newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
-    err = vk_create_semaphore(g->device, &semaphore);
-    assert(!err);
-
-    err = vkAcquireNextImageKHR(g->device, g->swapchain, UINT64_MAX, semaphore, 0, &g->sc_curr);
-    if (err == VK_ERROR_OUT_OF_DATE_KHR) {
-        printf("out of date\n");
-        vk_destroy(g->device, semaphore);
-        return;
-    } else if (err == VK_SUBOPTIMAL_KHR) {
-        assert(0);
-    } else {
-        assert(!err);
-    }
-
     vk_begin_render(g->cmd,
         .renderPass = g->pass[1],
-        .framebuffer = g->fb[g->sc_curr],
+        .framebuffer = g->fb[g->sc_frame],
         .renderArea.extent.width = g->w,
         .renderArea.extent.height = g->h,
         .clearValueCount = 1,
@@ -1328,7 +1485,7 @@ void gfx_finish_draw(gfx_t *g)
 
     vk_end_render(cmd);
 
-    vk_image_barrier(cmd, .image = g->sc_image[g->sc_curr],
+    vk_image_barrier(cmd, .image = g->sc_image[g->sc_frame],
         .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
         .dstAccessMask = VK_ACCESS_MEMORY_READ_BIT,
         .newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
@@ -1336,9 +1493,17 @@ void gfx_finish_draw(gfx_t *g)
     err = vk_end_cmd(cmd);
     assert(!err);
 
+    err = vk_create_semaphore(g->device, &semaphore);
+    assert(!err);
+
+    //TODO what is semaphore for?
+    err = vk_next_image(g->device, g->swapchain, semaphore, &frame);
+    assert(!err);
+
+    assert(frame == g->sc_frame);
+
     VkPipelineStageFlags pipe_stage_flags = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
     VkSubmitInfo submit_info = {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-                                .pNext = NULL,
                                 .waitSemaphoreCount = 1,
                                 .pWaitSemaphores = &semaphore,
                                 .pWaitDstStageMask = &pipe_stage_flags,
@@ -1352,10 +1517,9 @@ void gfx_finish_draw(gfx_t *g)
 
     VkPresentInfoKHR present = {
         .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
-        .pNext = NULL,
         .swapchainCount = 1,
         .pSwapchains = &g->swapchain,
-        .pImageIndices = &g->sc_curr,
+        .pImageIndices = &g->sc_frame,
     };
 
     // TBD/TODO: SHOULD THE "present" PARAMETER BE "const" IN THE HEADER?
@@ -1378,6 +1542,8 @@ void gfx_finish_draw(gfx_t *g)
     vk_destroy(g->device, semaphore);
 
     vkDeviceWaitIdle(g->device);
+
+    g->sc_frame = !g->sc_frame;
 }
 
 void gfx_mdl_begin(gfx_t *g)
@@ -1386,7 +1552,7 @@ void gfx_mdl_begin(gfx_t *g)
     vk_bind_descriptors(g->cmd, g->pipeline_layout, 1, &g->set);
 }
 
-void gfx_mdl(gfx_t *g, size_t id, float *matrix)
+void gfx_mdl(gfx_t *g, unsigned id, float *matrix)
 {
     vk_bind_buf(g->cmd, &g->vbo[vo_mdl + id].buf, 0);
     vk_bind_index_buf(g->cmd, g->vbo[vo_mdl_elements + id].buf, 0);
@@ -1434,103 +1600,64 @@ void gfx_mdl_draw(gfx_t *g, uint32_t start, uint32_t end)
     vkCmdDrawIndexed(g->cmd, end - start, 1, start, 0, 0);
 }
 
-void gfx_texture_data(gfx_t *g, size_t id, void *data, size_t width, size_t height,
-                      uint8_t filter, uint8_t mipmap, uint8_t format)
+void gfx_texture(gfx_t *g, unsigned id, unsigned width, unsigned height, unsigned layers,
+                 unsigned filter, unsigned mipmap, unsigned format)
 {
-    (void) filter;
     (void) mipmap;
 
     texture_t *tex;
-    void *tdata;
     VkResult err;
-    VkFormat fmt;
+    unsigned binding;
 
-    assert(id < countof(g->tex));
+    VkDescriptorImageInfo sampler;
+    VkWriteDescriptorSet write;
+
+
     tex = &g->tex[id];
 
-    if (!tex->mem) {
-        fmt = (format == 2) ? VK_FORMAT_R8G8B8A8_UINT : VK_FORMAT_R8G8B8A8_UNORM;
-        create_image(g, &tex->image, &tex->mem, width, height, 1, fmt,
-                 VK_IMAGE_TILING_LINEAR, VK_IMAGE_USAGE_SAMPLED_BIT, 1);
-    }
+    err = set_texture(g, tex, width, height, layers ? layers : 1, format);
+    assert(!err);
 
-    if (data) {
-        err = vk_map(g->device, tex->mem, &tdata);
-        assert(!err);
+    binding = (id == tex_tiles) ? 6 :
+              (id == tex_icons) ? 2 :
+              (id == tex_part) ? 5 :
+              (id == tex_text) ? 1 :
+              (id == tex_map) ? 7 :
+              (id == tex_mdl) ? 4 :
+              (assert(0), 1);
 
-        if (format) {
-            uint8_t *p = tdata, *q = data;
-            for (unsigned y = 0; y < height; y++) {
-                for (unsigned x = 0; x < width; x++, p += 4) {
-                    if (format == 1) {
-                        p[0] = p[1] = p[2] = 255, p[3] = q[y * width + x];
-                    } else {
-                        p[0] = q[(y * width + x) * 2 + 0];
-                        p[1] = q[(y * width + x) * 2 + 1];
-                        p[2] = p[3] = 255;
-                    }
-                }
-            }
-        } else {
-            memcpy(tdata, data, width * height * 4);
-        }
-
-        vk_unmap(g->device, tex->mem);
-    }
-
-    if (!tex->view) {
-    /*if (gray) {
-        err = vk_create_view(g->device, &tex->view, .image = tex->image, .format = tex_format,
-                             .components = { VK_COMPONENT_SWIZZLE_ONE, VK_COMPONENT_SWIZZLE_ONE,
-                                             VK_COMPONENT_SWIZZLE_ONE, VK_COMPONENT_SWIZZLE_R, });
-        assert(!err);
-
-    } else*/ {
-        err = vk_create_view(g->device, &tex->view, .image = tex->image, .format = tex_format);
-        assert(!err);
-    }
-    }
-
-    //
-    VkDescriptorImageInfo sampler[2];
-    VkWriteDescriptorSet writes[2];
-
-    if (id == tex_icons) {
-        sampler[0] = vk_sampler(g->sampler[0], g->tex[tex_text].view);
-        sampler[1] = vk_sampler(g->sampler[0], tex->view);
-
-        writes[0] = vk_write_sampler(g->set, 1, 0, 1, sampler);
-        writes[1] = vk_write_sampler(g->set, 2, 0, 1, sampler + 1);
-        vk_write(g->device, countof(writes), writes);
-    }
-
-    if (id == tex_part) {
-        sampler[0] = vk_sampler(g->sampler[0], tex->view);
-        writes[0] = vk_write_sampler(g->set, 5, 0, 1, sampler);
-        vk_write(g->device, 1, writes);
-    }
-
-    if (id == tex_tiles) {
-        sampler[0] = vk_sampler(g->sampler[0], tex->view);
-        writes[0] = vk_write_sampler(g->set, 6, 0, 1, sampler);
-        vk_write(g->device, 1, writes);
-    }
-
-    if (id == tex_map) {
-        sampler[0] = vk_sampler(g->sampler[0], tex->view);
-        writes[0] = vk_write_sampler(g->set, 7, 0, 1, sampler);
-        vk_write(g->device, 1, writes);
-    }
+    sampler = vk_sampler(g->sampler[filter], tex->view);
+    write = vk_write_sampler(g->set, binding, 0, 1, &sampler);
+    vk_write(g->device, 1, &write);
 }
 
-void gfx_texture_mdl(gfx_t *g, size_t id, void *data, size_t width, size_t height)
+void* gfx_map(gfx_t *g, unsigned id)
 {
-    assert(width == 256 && height == 256);
-    vk_memcpy(g->device, g->model_tex.mem, id * 256 * 256 * 4, data, 256 * 256 * 4);
+    VkResult err;
+    void *res;
+
+    err = vk_map(g->device, g->tex[id].mem, &res);
+    assert(!err);
+
+    return res;
 }
 
-void gfx_mdl_data(gfx_t *g, size_t id, const uint16_t *index, const void *vert,
-                 size_t nindex, size_t nvert)
+void gfx_unmap(gfx_t *g, unsigned id)
+{
+    vk_unmap(g->device, g->tex[id].mem);
+}
+
+void gfx_copy(gfx_t *g, unsigned id, void *data, unsigned size)
+{
+    void *p;
+
+    p = gfx_map(g, id);
+    memcpy(p, data, size);
+    gfx_unmap(g, id);
+}
+
+void gfx_mdl_data(gfx_t *g, unsigned id, const uint16_t *index, const void *vert,
+                 unsigned nindex, unsigned nvert)
 {
     VkResult err;
     buffer_t *buf;

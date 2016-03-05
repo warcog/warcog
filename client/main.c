@@ -24,7 +24,7 @@ static const uint8_t def_sizes[num_defs] = {
     sizeof(attachmentdef_t),
 };
 
-static int16_t load_sound(game_t *g, data_t *data, unsigned id, idmap_t *map)
+static int16_t load_sound(game_t *g, data_t data, unsigned id, idmap_t *map)
 {
     if (idmap_test(map, &id))
         return id;
@@ -33,72 +33,63 @@ static int16_t load_sound(game_t *g, data_t *data, unsigned id, idmap_t *map)
     return idmap_add(map, id); /* add regardless of failure so we don't try again */
 }
 
-struct args {
+struct mdl_load_args {
+    idmap_t *tmap;
     game_t *g;
-    idmap_t *map, *tmap;
-    texfile_t *texfile;
+    unsigned id;
 };
 
 static unsigned loadtex(void *user, unsigned tex)
 {
-    struct args *args = user;
-    unsigned tid, tid_mapped;
-    texinfo_t *texinfo;
+    idmap_t *map;
+    unsigned tid;
+
+    map = ((struct mdl_load_args*) user)->tmap;
 
     tid = tex & 0x3FFF;
-    if (idmap_test(args->tmap, &tid)) {
+    if (idmap_test(map, &tid)) {
         tex = (tex & 0xC000) | tid;
         return tex;
     }
 
-    texinfo = get_texture_info(args->texfile, tid);
-    if (!texinfo || texinfo->w != 256 || texinfo->h != 256)
-        return 0xFFFF;
-
-    if (!read_texture(args->texfile, texinfo, (void*) args->g->tmp))
-        return 0xFFFF;
-
-    tid_mapped = idmap_add(args->tmap, tid);
-    tex = (tex & 0xC000) | tid_mapped;
-
-    gfx_texture_mdl(&args->g->gfx, tid_mapped, args->g->tmp, texinfo->w, texinfo->h);
+    tex = (tex & 0xC000) | idmap_add(map, tid);
     return tex;
 }
 
-static bool loadmdl(void *user, const void *mdl, size_t mdl_size, const uint16_t *index, size_t nindex,
-                    const void *vert, size_t nvert)
+static bool loadmdl(void *user, const void *mdl, size_t mdl_size, const uint16_t *index,
+                    size_t nindex, const void *vert, size_t nvert)
 {
-    struct args *args = user;
     void *data;
+    game_t *g;
+    unsigned id;
+
+    g = ((struct mdl_load_args*) user)->g;
+    id = ((struct mdl_load_args*) user)->id;
 
     data = malloc(mdl_size);
     if (!data)
         return 0;
     memcpy(data, mdl, mdl_size);
 
-    gfx_mdl_data(&args->g->gfx, args->map->count, index, vert, nindex, nvert);
+    gfx_mdl_data(&g->gfx, id, index, vert, nindex, nvert);
 
-    printf("model %u: nindex=%u, nvert=%u\n", args->map->count, (unsigned) nindex, (unsigned) nvert);
-    args->g->model[args->map->count] = data;
+    printf("model %u: nindex=%u, nvert=%u\n", id, (unsigned) nindex, (unsigned) nvert);
+    g->model[id] = data;
     return 1;
 }
 
-static int16_t load_model(game_t *g, data_t *data, texfile_t *texfile, unsigned id, idmap_t *map,
-                          idmap_t *tmap)
+static int16_t load_model(game_t *g, data_t data, unsigned id, idmap_t *map, idmap_t *tmap)
 {
-    struct args args;
     data_t p;
-
-    args = (struct args){g, map, tmap, texfile};
+    struct mdl_load_args arg;
 
     if (idmap_test(map, &id))
         return id;
 
-    if (map->count == num_model)
-        return -1;
+    arg = (struct mdl_load_args){tmap, g, map->count};
 
     p = read_model(data, id);
-    if (!model_load(p, loadtex, loadmdl, &args))
+    if (!model_load(p, loadtex, loadmdl, &arg))
         return -1;
 
     return idmap_add(map, id);
@@ -109,7 +100,7 @@ void loadmap(game_t *g)
     //TODO: multicall dec
     //TODO: as secondary thread
     uint8_t *data, *p, *p_prev;
-    uint32_t i, j, k;
+    unsigned i, j, k;
     const mapdef_t *mapdef;
     texfile_t textures;
     data_t sounds, models;
@@ -122,11 +113,12 @@ void loadmap(game_t *g)
     statedef_t *sdef;
 
     idmap_t sndmap, mdlmap, texmap;
-    int16_t soundmap[max_sounds], modelmap[max_models], texturemap[max_textures]; //
+    uint16_t soundmap[max_sounds], modelmap[max_models], texturemap[max_textures]; //
 
     tatlas_t atlas;
     rgba *tex;
     int16_t idmap[max_textures];
+    texinfo_t *info;
 
     //
     data = malloc(g->inflated);
@@ -196,13 +188,15 @@ void loadmap(game_t *g)
     if (!read_file(&models, "models", max_models * 4))
         goto fail_read_models;
 
-    if (!load_tileset(&textures, g->tmp_rgba, mapdef->tileset, countof(mapdef->tileset)))
+    tex = gfx_map(&g->gfx, tex_tiles);
+
+    if (!load_tileset(&textures, tex, mapdef->tileset, countof(mapdef->tileset)))
         goto fail_load_tileset;
-    gfx_texture_data(&g->gfx, tex_tiles, g->tmp_rgba, 1024, 1024, 0, 6, 0);
+
+    gfx_unmap(&g->gfx, tex_tiles);
 
     //
-    //tex = gfx_map(&g->gfx, tex_icons, 1024, 1024, 0, 0, 0);
-    tex = g->tmp_rgba;
+    tex = gfx_map(&g->gfx, tex_icons);
     tatlas_init(&atlas, 1024, 1024, 64, idmap);
 
     for (i = 0; i < countof(mapdef->iconset) && mapdef->iconset[i] >= 0; i++)
@@ -216,14 +210,14 @@ void loadmap(game_t *g)
     for (i = 0; i < mapdef->ndef[entity]; i++) {
         def = idef(g, entity, i);
         if (def->model >= 0)
-            def->model = load_model(g, &models, &textures, def->model, &mdlmap, &texmap);
+            def->model = load_model(g, models, def->model, &mdlmap, &texmap);
 
         if (def->icon >= 0)
             def->icon = tatlas_add(&atlas, tex, &textures, def->icon);
 
         for (j = 0; j < countof(def->voice); j++)
             for (k = 0; k < def->voice[j].count; k++)
-                def->voice[j].sound[k] = load_sound(g, &sounds, def->voice[j].sound[k], &sndmap);
+                def->voice[j].sound[k] = load_sound(g, sounds, def->voice[j].sound[k], &sndmap);
     }
 
     for (i = 0; i < mapdef->ndef[ability]; i++) {
@@ -238,13 +232,28 @@ void loadmap(game_t *g)
             sdef->icon = tatlas_add(&atlas, tex, &textures, sdef->icon);
     }
 
-    gfx_texture_data(&g->gfx, tex_icons, g->tmp_rgba, 1024, 1024, 0, 6, 0);
-    //gfx_unmap(&g->gfx, tex_icons);
+    gfx_unmap(&g->gfx, tex_icons);
+
+    gfx_texture(&g->gfx, tex_mdl, 256, 256, texmap.count, filter_none, 0, format_rgba);
+    tex = gfx_map(&g->gfx, tex_mdl);
+
+    for (i = 0; i < texmap.count; i++) {
+        info = get_texture_info(&textures, texmap.data[i]);
+        if (!info || info->w != 256 || info->h != 256)
+            continue; //
+
+        if (!read_texture(&textures, info, &tex[256 * 256 * i]))
+            continue; //
+    }
+
+    gfx_unmap(&g->gfx, tex_mdl);
+
     /* particle textures */
     //TODO
     particledef_t *pdef;
     uint32_t pinfo[256 * 4];
 
+    tex = gfx_map(&g->gfx, tex_part);
     tatlas_init(&atlas, 1024, 1024, 64, idmap);
 
     for (i = 0; i < mapdef->ndef[effect + effect_particle]; i++) {
@@ -258,14 +267,15 @@ void loadmap(game_t *g)
 
     gfx_particleinfo(&g->gfx, pinfo, mapdef->ndef[effect + effect_particle]);
 
-    gfx_texture_data(&g->gfx, tex_part, g->tmp_rgba, 1024, 1024, 0, 6, 0);
+    gfx_unmap(&g->gfx, tex_part);
 
     for (i = 0; i < mapdef->ndef[effect + effect_sound]; i++)
-        edef(g, sound, i)->sound = load_sound(g, &sounds, edef(g, sound, i)->sound, &sndmap);
+        edef(g, sound, i)->sound = load_sound(g, sounds, edef(g, sound, i)->sound, &sndmap);
 
     gfx_mapverts(&g->gfx, g->map.vert, g->map.nvert);
 
-    gfx_texture_data(&g->gfx, tex_map, g->map.tile, g->map.size, g->map.size, 0, 0, 2);
+    gfx_texture(&g->gfx, tex_map, g->map.size, g->map.size, 0, 0, 0, format_rg_int);
+    gfx_copy(&g->gfx, tex_map, g->map.tile, g->map.size * g->map.size * 2);
 
     gfx_render_minimap(&g->gfx, (g->height * 256 + 540) / 1080);
 
@@ -440,14 +450,9 @@ static void render_text(game_t *g, int h)
 {
     void *data;
 
-    data = malloc(1024 * 1024 * 4);
-    if (!data)
-        return;
-
+    data = gfx_map(&g->gfx, tex_text);
     text_rasterize(g->font, data, h);
-    gfx_texture_data(&g->gfx, tex_text, data, 1024, 1024, 0, 0, 1);
-
-    free(data);
+    gfx_unmap(&g->gfx, tex_text);
 }
 
 bool game_init(game_t *g, unsigned w, unsigned h, unsigned argc, char *argv[])
@@ -461,6 +466,11 @@ bool game_init(game_t *g, unsigned w, unsigned h, unsigned argc, char *argv[])
 
     if (!gfx_init(&g->gfx, w, h))
         return 0;
+
+    gfx_texture(&g->gfx, tex_tiles, 1024, 1024, 0, filter_none, 0, format_rgba);
+    gfx_texture(&g->gfx, tex_icons, 1024, 1024, 0, filter_none, 0, format_rgba);
+    gfx_texture(&g->gfx, tex_part, 1024, 1024, 0, filter_none, 0, format_rgba);
+    gfx_texture(&g->gfx, tex_text, 1024, 1024, 0, filter_none, 0, format_alpha);
 
     render_text(g, h);
 

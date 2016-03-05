@@ -34,8 +34,9 @@ typedef struct {
 
     volatile bool lock;
     volatile ref_t ref;
+    volatile float volume;
 
-    sound_t* sound[2048];
+    sound_t* sound[max_sounds];
 } audio_t;
 
 /* written for use with 2 threads,
@@ -46,6 +47,8 @@ typedef struct {
 /* render some samples */
 void audio_getsamples(audio_t *a, sample_t *res, float *buf, uint32_t samples);
 
+/* set global volume */
+void audio_volume(audio_t *a, float volume);
 /* set listener reference */
 void audio_listener(audio_t *a, ref_t ref);
 /* start playing a sound, return source's id, can return -1 */
@@ -55,6 +58,7 @@ int audio_play(audio_t *a, uint32_t sound_id, vec3 pos, bool loop, uint8_t volum
 bool audio_move(audio_t *a, uint32_t id, vec3 pos);
 /* stop playing a source */
 void audio_stop(audio_t *a, uint32_t id);
+
 
 /* init audio, assumes zeroed-out */
 void audio_init(audio_t *a);
