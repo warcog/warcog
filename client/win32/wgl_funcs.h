@@ -48,5 +48,9 @@ f(glGenBuffers, GLGENBUFFERS);
 f(glDeleteBuffers, GLDELETEBUFFERS);
 f(glBindBuffer, GLBINDBUFFER);
 f(glBufferData, GLBUFFERDATA);
+
 f(glBufferSubData, GLBUFFERSUBDATA);
+
+f(glTexImage3D, GLTEXIMAGE3D);
+f(glTexSubImage3D, GLTEXSUBIMAGE3D);
 

@@ -5,7 +5,6 @@
 #include <string.h>
 #include <locale.h>
 
-#include "alsa.h"
 #include "../game.h"
 
 #include <X11/Xlib.h>
@@ -243,16 +242,23 @@ static XIC ic_init(XIM *p_im, Display *display, Window win)
 static bool xlib_events(game_t *g, XIC ic)
 {
     XEvent event;
+    unsigned i, j;
 
     while (XPending(display)) {
         XNextEvent(display, &event);
         switch(event.type) {
         case KeyPress: {
             XKeyEvent *ev = &event.xkey;
-            char buf[8]; //is 8 always large enough?
+            char buf[32];
             Status status;
             int res;
             KeySym sym;
+
+            XQueryKeymap(display, buf);
+            for (i = 0, j = 0; i < 256; i++)
+                if (buf[i / 8] & (1 << (i & 7)))
+                    g->keys[j++] = i;
+            g->num_keys = j;
 
             game_keydown(g, ev->keycode);
 
@@ -333,14 +339,9 @@ int main(int argc, char *argv[])
     width = 1024;
     height = 768;
 
-    audio_init(&g->audio);
-
-    if (!thread(alsa_thread, &g->audio))
-        return 0;
-
     display = XOpenDisplay(0);
     if (!display)
-        goto exit_stopalsa;
+        return 0;
 
     wm_delete_window = XInternAtom(display, "WM_DELETE_WINDOW", 0);
 
@@ -362,9 +363,5 @@ exit_game:
     game_exit(&game);
 exit_closedisplay:
     XCloseDisplay(display);
-exit_stopalsa:
-    while (!alsa_init);
-    alsa_init = 0;
-    while (!alsa_quit);
     return 0;
 }

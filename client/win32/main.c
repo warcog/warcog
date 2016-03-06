@@ -97,6 +97,8 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
     int x, y, w, h;
     RECT desktop;
     HWND wnd;
+    uint8_t buf[256];
+    unsigned i, j;
 
     x = GET_X_LPARAM(lparam);
     y = GET_Y_LPARAM(lparam);
@@ -143,19 +145,17 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
     case WM_MOUSEWHEEL:
         game_wheel(&game, (double) (int16_t) HIWORD(wparam) / 120.0);
         break;
-    case WM_UNICHAR:
-        printf("lel %u\n", (int) wparam);
-        break;
-    case WM_IME_CHAR:
-        printf("lol %u\n", (int) wparam);
-        break;
     case WM_CHAR:
-        printf("%u\n", (int) wparam);
-
-        char p[6];
-        game_char(&game, p, unicode_to_utf8(p, wparam));
+        printf("char %u\n", (unsigned) wparam);
+        game_char(&game, (char*) buf, unicode_to_utf8((char*) buf, wparam));
         break;
     case WM_KEYDOWN:
+        GetKeyboardState(buf);
+        for (i = 0, j = 0; i < 256; i++)
+            if (buf[i] & 128)
+                game.keys[j++] = i;
+        game.num_keys = j;
+
         game_keydown(&game, wparam);
         game_keysym(&game, wparam);
 
@@ -169,7 +169,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
             } else {
                 SetWindowLongPtr(hwnd, GWL_STYLE, WS_OVERLAPPEDWINDOW | WS_VISIBLE);
                 SetWindowPos(hwnd, 0, 0, 0, win.right - win.left, win.bottom - win.top, 0);
-                SetWindowPos(hwnd, 0, win.left, win.top, win.right - win.left, win.bottom - win.top, 0);
+                SetWindowPos(hwnd, 0, win.left, win.top, win.right-win.left, win.bottom-win.top, 0);
             }
             fullscreen = !fullscreen;
         }
@@ -194,7 +194,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
 
 void audio_thread(void *args)
 {
-    (void) args;
+    audio_t *a;
     HRESULT hr;
     HANDLE event = 0;
     WAVEFORMATEX *fmt;
@@ -205,6 +205,8 @@ void audio_thread(void *args)
     uint32_t padding, buf_size, period_size, samples;
     REFERENCE_TIME defp, minp;
     uint8_t *data;
+
+    a = args;
 
     CoInitialize(0);
 
@@ -268,6 +270,7 @@ void audio_thread(void *args)
 
     printf("audio buf_size=%u period_size=%u\n", buf_size, period_size);
 
+    a->init = 1;
     do {
         hr = acl->lpVtbl->GetCurrentPadding(acl, &padding);
         check(hr);
@@ -279,11 +282,11 @@ void audio_thread(void *args)
         check(hr);
 
         float buf[samples];
-        audio_getsamples(&game.audio, (sample_t*)data, buf, samples);
+        audio_getsamples(a, (sample_t*) data, buf, samples);
 
         hr = rcl->lpVtbl->ReleaseBuffer(rcl, samples, 0);
         check(hr);
-    } while (WaitForSingleObject(event, 2000) == WAIT_OBJECT_0);
+    } while (WaitForSingleObject(event, 2000) == WAIT_OBJECT_0 && a->init);
 
 failure:
     printf("audio thread exit\n");
@@ -292,6 +295,7 @@ failure:
     if (acl) release(acl);
     if (event) CloseHandle(event);
 
+    a->quit = 1;
     return;
 }
 
@@ -318,7 +322,7 @@ static BOOL (WINAPI*wglSwapIntervalEXT)(int interval);
 static bool linkgl(void)
 {
 #include "wgl_link.h"
-	wglSwapIntervalEXT = (void*)wglGetProcAddress("wglSwapIntervalEXT");
+	wglSwapIntervalEXT = (void*) wglGetProcAddress("wglSwapIntervalEXT");
     return 1;
 }
 
@@ -347,9 +351,6 @@ bool create_window(int width, int height)
         return 0;
 
     tme.hwndTrack = hwnd;
-
-    /*if (WSAAsyncSelect(sock, hwnd, WM_SOCKET, FD_READ))
-        goto EXIT_DESTROY_WINDOW; */
 
     hdc = GetDC(hwnd);
     memset(&pfd, 0, sizeof(PIXELFORMATDESCRIPTOR));
@@ -482,7 +483,6 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev_inst, LPSTR cmd, int nCmdS
         goto fail_unregister;
 
     init_done = 1;
-    thread(audio_thread, 0);
 
     while (!done) {
         game_frame(&game);

@@ -2,9 +2,11 @@
 #include <alsa/asoundlib.h>
 #include "../audio.h"
 
-volatile bool alsa_init, alsa_quit;
-
 #define buffersize 1024
+
+#ifndef ALSA_DEVICE
+#define ALSA_DEVICE "default"
+#endif
 
 static snd_pcm_t* alsa_open(const char *dev_name)
 {
@@ -89,21 +91,20 @@ ERR:
     return err;
 }
 
-#ifndef ALSA_DEVICE
-#define ALSA_DEVICE "default"
-#endif
-
 enum {
     max_frames = (32768 / sizeof(sample_t)), /* half of stack size */
 };
 
-void alsa_thread(void *args)
+void audio_thread(void *args)
 {
+    audio_t *a;
     snd_pcm_t *handle;
     snd_pcm_sframes_t frames, avail;
     int ret;
     sample_t samples[max_frames], *p;
     float buf[max_frames];
+
+    a = args;
 
     handle = alsa_open(ALSA_DEVICE);
     if (!handle)
@@ -118,8 +119,8 @@ void alsa_thread(void *args)
     if (snd_pcm_prepare(handle) < 0)
         goto EXIT_CLOSE;
 
-    alsa_init = 1;
-    while (alsa_init) {
+    a->init = 1;
+    while (a->init) {
         snd_pcm_wait(handle, 1000);
         frames = snd_pcm_avail_update(handle);
         if (frames < 0) {
@@ -129,7 +130,7 @@ void alsa_thread(void *args)
         if (frames > max_frames)
             frames = max_frames;
 
-        audio_getsamples(args, samples, buf, frames);
+        audio_getsamples(a, samples, buf, frames);
 
         avail = frames;
         p = samples;
@@ -162,5 +163,5 @@ EXIT_CLOSE:
     snd_pcm_close(handle);
 EXIT:
     snd_config_update_free_global();
-    alsa_quit = 1;
+    a->quit = 1;
 }

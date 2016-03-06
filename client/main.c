@@ -520,6 +520,9 @@ bool game_init(game_t *g, unsigned w, unsigned h, unsigned argc, char *argv[])
             game_directconnect(g, &addr);
     }
 
+    audio_init(&g->audio);
+    thread(audio_thread, &g->audio);
+    while (!g->audio.init) if (g->audio.quit) return 0; //TODO: condition
     return 1;
 
 cleanup:
@@ -548,114 +551,75 @@ void game_exit(game_t *g)
         map_free(&g->map);
 
     game_disconnect(g);
+
+    g->audio.init = 0;
+    while (!g->audio.quit); //TODO: join
 }
 
 #include "keycodes.h"
 
-void game_keydown(game_t *g, uint32_t key)
+void game_keydown(game_t *g, uint8_t key)
 {
     const entity_t *ent;
     const ability_t *a;
     unsigned i;
     bind_t b;
 
-    if (key >= 255)
+    if (!g->nsel)
         return;
-
-    if (g->nsel) {
 
     ent = &g->entity[g->sel_ent[g->sel_first]];
 
-    /*for (i = 0; i < 3; i++) {
-        if (key == g->builtin_key[i]) {
+    for (i = 0; i < num_builtin; i++) {
+        b = g->bind.data[0x8000 + i];
+        if (bind_match(b, key, g->keys, g->num_keys)) {
             game_action(g, builtin_target[i], i, 0, (g->key_state & alt_mask) ? 1 : 0);
             return;
         }
-    }*/
+    }
 
     ability_loop(ent, a, i) {
         b = g->bind.data[a->def];
-        if (bind_match(b, key, g->keys_down, g->keys_num)) {
+        if (bind_match(b, key, g->keys, g->num_keys)) {
             game_action(g, def(g, a)->target, (a - ent->ability) | 128,
                         def(g, a)->front_queue ? -1 : 0, (g->key_state & alt_mask) ? 1 : 0);
             break;
         }
     }
-    }
-
-    for (i = 0; i < g->keys_num; i++)
-        if (key == g->keys_down[i])
-            break;
-
-    if (i == g->keys_num)
-        g->keys_down[g->keys_num++] = key;
 }
 
-void game_keyup(game_t *g, uint32_t key)
+void game_keyup(game_t *g, uint8_t key)
 {
-    unsigned i, j, id;
+    unsigned id;
     bind_t b;
 
-    if (key >= 255)
-        return;
-
-    for (i = 0, j = 0; i < g->keys_num; i++)
-        if (key != g->keys_down[i])
-            g->keys_down[j++] = g->keys_down[i];
-    assert(j + 1 == g->keys_num);
-    g->keys_num = j;
-
-    if (!g->binding)
+    if (!g->binding || g->num_keys > countof(b.keys))
         return;
 
     b.map = g->map_id;
-    b.info = 0;
     if (g->binding < 0) {
-        b.info |= bind_builtin;
+        b.type = bind_builtin;
         b.ability = g->bind_id;
         id = 0x8000 | g->bind_id;
     } else {
+        b.type = bind_ability;
         b.ability = idef(g, ability, g->bind_id)->hash;
         id = g->bind_id;
     }
 
-    j = g->keys_num > 2 ? 2 : g->keys_num;
-    b.info |= j;
-    for (i = 0; i < j; i++)
-        b.keys[i] = g->keys_down[i];
-    b.keys[2] = key;
+    b.trigger = key;
+    b.num_key = g->num_keys;
+    memcpy(b.keys, g->keys, g->num_keys);
+
     bind_set(&g->bind, id, b);
-
-    printf("%u %u %u\n", id, b.info, b.keys[2]);
-
     g->binding = 0;
 }
 
 void game_keysym(game_t *g, uint32_t sym)
 {
-    /*input_t *in;
-    char *p; */
-
     if (sym == key_f1)
         if (lockcursor(g, !g->mouse_locked))
             g->mouse_locked = !g->mouse_locked;
-
-    /*if (g->input_id >= 0) {
-        in = &g->input[g->input_id];
-        p = in->str + g->input_at;
-
-        switch (sym) {
-        case key_left:
-            if (g->input_at)
-                g->input_at -= utf8_unlen(p);
-            break;
-        case key_right:
-            if (g->input_at < in->len)
-                g->input_at += utf8_len(p);
-            break;
-        }
-        return;
-    }*/
 
     if (sym == key_tab)
         g->sel_first = (g->sel_first + 1) % g->nsel;
@@ -666,38 +630,6 @@ void game_char(game_t *g, char *ch, int size)
     (void) g;
     (void) ch;
     (void) size;
-    /*input_t *in;
-    char *p;
-
-    if (g->input_id < 0)
-        return;
-
-    in = &g->input[g->input_id];
-    p = in->str + g->input_at;
-
-    if (ch[0] == 8) { //backspace
-        if (!g->input_at)
-            return;
-
-        size = utf8_unlen(p);
-        memmove(p - size, p, in->len - g->input_at);
-        in->len -= size;
-        g->input_at -= size;
-        in->str[in->len] = 0;
-        return;
-    }
-
-    if (in->len + size >= in->max)
-        return;
-
-    memmove(p + size, p, in->len - g->input_at);
-    memcpy(p, ch, size);
-
-    in->len += size;
-    g->input_at += size;
-    in->str[in->len] = 0;
-
-    printf("%.*s\n", size, ch); */
 }
 
 static void updateselection(game_t *g)

@@ -163,7 +163,9 @@ typedef struct {
 
     int8_t binding;
     uint16_t bind_id, map_id;
-    uint8_t keys_down[255], keys_num;
+
+    uint8_t keys[256];
+    unsigned num_keys;
 
     input_t input[2];
     char addr_str[56], port_str[8];
@@ -249,6 +251,7 @@ void quit(game_t *g);
 void setcursor(game_t *g, uint8_t cursor);
 bool lockcursor(game_t *g, bool lock);
 bool thread(void (func)(void*), void *arg);
+void audio_thread(void *args);
 
 void game_action(game_t *g, uint8_t action_type, uint8_t action, int8_t queue, uint8_t alt);
 void game_mouseover(game_t *g);
@@ -259,8 +262,8 @@ bool game_init(game_t *g, unsigned w, unsigned h, unsigned argc, char *argv[]);
 void game_resize(game_t *g, int w, int h);
 void game_exit(game_t *g);
 
-void game_keydown(game_t *g, uint32_t key);
-void game_keyup(game_t *g, uint32_t key);
+void game_keydown(game_t *g, uint8_t key);
+void game_keyup(game_t *g, uint8_t key);
 void game_keysym(game_t *g, uint32_t sym);
 void game_char(game_t *g, char *ch, int size);
 

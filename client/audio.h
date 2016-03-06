@@ -32,6 +32,8 @@ typedef struct {
     uint32_t nsource;
     uint8_t i;
 
+    volatile bool init, quit;
+
     volatile bool lock;
     volatile ref_t ref;
     volatile float volume;
