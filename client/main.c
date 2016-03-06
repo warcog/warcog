@@ -342,7 +342,7 @@ static void draw_entities(game_t *g)
 
     //p = &players.player[self_id()];
 
-    for_entity(g, ent) {
+    array_for(&g->ent, ent) {
         def = def(g, ent);
 
         if (def->model < 0)
@@ -354,7 +354,7 @@ static void draw_entities(game_t *g)
         if (view_intersect_box(&g->view, min, max, vec2(-1.0, 1.0), vec2(-1.0, 1.0)) < 0)
             continue;
 
-        outline = ((g->target & tf_entity) && g->target_ent == ent_id(g, ent));
+        outline = ((g->target & tf_entity) && g->target_ent == array_id(&g->ent, ent));
         if (outline)
             gfx_mdl_outline(&g->gfx, vec3(1.0, 0.0, 0.0));
 
@@ -421,7 +421,7 @@ void game_frame(game_t *g)
         v_max = &mvert[4096];
 
         for (i = 0; i < g->nsel; i++) {
-            ent = &g->entity[g->sel_ent[i]];
+            ent = array_get(&g->ent, g->sel_ent[i]);
             v = map_circleverts(&g->map, v, v_max, ent->x, ent->y, def(g, ent)->boundsradius);
         }
 
@@ -461,8 +461,7 @@ static void render_text(game_t *g, int h)
 
 bool game_init(game_t *g, unsigned w, unsigned h, unsigned argc, char *argv[])
 {
-    int i, j;
-    entity_t *ent;
+    unsigned i;
     addr_t addr;
 
     if (!time_init())
@@ -491,17 +490,15 @@ bool game_init(game_t *g, unsigned w, unsigned h, unsigned argc, char *argv[])
     gameui_reset(g);
 
     /* */
-    for (i = 0; i < 65535; i++) {
-        ent = &g->entity[i];
-
+    array_for_all(&g->ent, ent) {
         ent->def = -1;
         ent->voice_sound = -1;
 
-        for (j = 0; j < 64; j++)
-            ent->state[j].def = -1;
+        for (i = 0; i < 64; i++)
+            ent->state[i].def = -1;
 
-        for (j = 0; j < 16; j++)
-            ent->ability[j].def = -1;
+        for (i = 0; i < 16; i++)
+            ent->ability[i].def = -1;
     }
 
     g->time = time_get();
@@ -560,32 +557,62 @@ void game_exit(game_t *g)
 
 void game_keydown(game_t *g, uint8_t key)
 {
+    static const uint8_t builtin_target[] = {tf_ground | tf_entity, tf_none, tf_none};
+    static const uint8_t builtin_queue[] = {3, 1, 3};
+
     const entity_t *ent;
     const ability_t *a;
-    unsigned i;
-    bind_t b;
+    unsigned i, val, min;
+    unsigned target, action, queue, alt;
 
-    if (!g->nsel)
+    if (g->bind_modifier) {
+        g->bind.modifier[0] = key;
+        g->bind_modifier = 0;
+    }
+
+    bind_update_modifiers(&g->bind, g->keys, g->num_keys);
+
+    if (!g->nsel || g->binding)
         return;
 
-    ent = &g->entity[g->sel_ent[g->sel_first]];
+    ent = array_get(&g->ent, g->sel_ent[g->sel_first]);
+    min = ~0u;
 
     for (i = 0; i < num_builtin; i++) {
-        b = g->bind.data[0x8000 + i];
-        if (bind_match(b, key, g->keys, g->num_keys)) {
-            game_action(g, builtin_target[i], i, 0, (g->key_state & alt_mask) ? 1 : 0);
-            return;
+        val = bind_match(&g->bind, 0x8000 + i, key, g->keys, g->num_keys);
+        if (min > val) {
+            min = val;
+            target = builtin_target[i];
+            action = i;
+            queue = builtin_queue[i];
+            alt = g->bind.data[0x8000 + i].alt;
         }
     }
 
     ability_loop(ent, a, i) {
-        b = g->bind.data[a->def];
-        if (bind_match(b, key, g->keys, g->num_keys)) {
-            game_action(g, def(g, a)->target, (a - ent->ability) | 128,
-                        def(g, a)->front_queue ? -1 : 0, (g->key_state & alt_mask) ? 1 : 0);
-            break;
+        val = bind_match(&g->bind, a->def, key, g->keys, g->num_keys);
+        if (min > val) {
+            min = val;
+            target = def(g, a)->target;
+            action = (a - ent->ability) | 128;
+            queue = def(g, a)->front_queue ? 0 : 2;
+            alt = g->bind.data[a->def].alt;
         }
     }
+
+    if ((int) min < 0)
+        return;
+
+    if (target & tf_none) {
+        game_netorder(g, action, target_none, queue, alt);
+        return;
+    }
+
+    g->action_target = target;
+    g->action = action;
+    g->action_queue = queue;
+    g->action_alt = alt;
+    setcursor(g, cursor_target);
 }
 
 void game_keyup(game_t *g, uint8_t key)
@@ -593,7 +620,7 @@ void game_keyup(game_t *g, uint8_t key)
     unsigned id;
     bind_t b;
 
-    if (!g->binding || g->num_keys > countof(b.keys))
+    if (!g->binding || g->num_keys > countof(b.keys) || bind_ismodifier(&g->bind, key))
         return;
 
     b.map = g->map_id;
@@ -620,6 +647,9 @@ void game_keysym(game_t *g, uint32_t sym)
     if (sym == key_f1)
         if (lockcursor(g, !g->mouse_locked))
             g->mouse_locked = !g->mouse_locked;
+
+    if (sym == key_f6)
+        g->bind_modifier = 1;
 
     if (sym == key_tab)
         g->sel_first = (g->sel_first + 1) % g->nsel;
@@ -653,9 +683,9 @@ static void updateselection(game_t *g)
     k = 0xFF;
 
     j = 0;
-    for_entity(g, ent) {
+    array_for(&g->ent, ent) {
         def = def(g, ent);
-        if (ent->owner != g->packet.id || !(def->uiflags & ui_control))
+        if (ent->owner != g->conn.id || !(def->uiflags & ui_control))
             continue;
 
         min = sub(ent->pos, vec3(def->boundsradius, def->boundsradius, 0.0));
@@ -664,7 +694,7 @@ static void updateselection(game_t *g)
         if (view_intersect_box(&g->view, min, max, sx, sy) < 0)
             continue;
 
-        id = (ent - g->entity);
+        id = array_id(&g->ent, ent);
 
         if (id == id_first)
             k = j;
@@ -719,45 +749,53 @@ static void playvoice(game_t *g, entity_t *ent, uint8_t i)
     g->voice_time = g->time;
 }
 
-void game_button(game_t *g, int x, int y, int button, uint32_t state)
+static bool do_action(game_t *g, entity_t *ent)
 {
-    uint8_t tf, target, priority;
-    ability_t *a;
-    int i;
-    bool shift;
-    entity_t *ent;
+    unsigned tf, target;
 
-    g->key_state = state;
-    shift = ((g->key_state & shift_mask) != 0);
+    tf = (g->action_target & g->target);
+    if (tf) {
+        target = (tf & tf_entity) ? target_ent :
+                 (tf & tf_ground) ? target_pos :
+                 target_none;
+
+        /* ground click effect */
+        if (target == target_pos) {
+            g->click = g->target_pos;
+            g->click_time = g->time;
+        }
+
+        /* voice response */
+        playvoice(g, ent, (g->action & 128) ? 2 : 1);
+
+        /* send order */
+        game_netorder(g, g->action, target, g->action_queue, g->action_alt);
+        return 1;
+    }
+    return 0;
+}
+
+void game_button(game_t *g, int x, int y, int button)
+{
+    unsigned tf, priority, i, id;
+    ability_t *a;
+    entity_t *ent;
 
     assert(x >= 0 && x < g->width);
     assert(y >= 0 && y < g->height);
+
+    bind_update_modifiers(&g->bind, g->keys, g->num_keys);
 
     if (game_ui_click(g, button))
             return;
 
     if (button == button_left) {
         if (g->nsel) {
-            ent = &g->entity[g->sel_ent[g->sel_first]];
-
-            tf = (g->action_target & g->target);
-            if (tf) {
-                target = target_none;
-                if (tf & tf_entity) {
-                    target = target_ent;
-                } else if (tf & tf_ground) {
-                    target = target_pos;
-                    g->click = g->target_pos;
-                    g->click_time = g->time;
-                }
-
-                playvoice(g, ent, (g->action & 128) ? 2 : 1);
-                game_netorder(g, g->action, target, shift ? 1 : g->action_queue, g->action_alt);
+            if (do_action(g, array_get(&g->ent, g->sel_ent[g->sel_first]))) {
                 g->action_target = 0;
                 setcursor(g, 0);
                 return;
             }
-
         }
 
         if (g->action_target)
@@ -772,7 +810,7 @@ void game_button(game_t *g, int x, int y, int button, uint32_t state)
             g->sel_ent[0] = g->target_ent;
             g->sel_first = 0;
 
-            playvoice(g, &g->entity[g->target_ent], 0);
+            playvoice(g, array_get(&g->ent, g->target_ent), 0);
         }
     }
 
@@ -780,16 +818,15 @@ void game_button(game_t *g, int x, int y, int button, uint32_t state)
         g->middle = 1;
 
     if (button == button_right) {
-        setcursor(g, 0);
-
         if (g->nsel) {
-            ent = &g->entity[g->sel_ent[g->sel_first]];
+            ent = array_get(&g->ent, id = g->sel_ent[g->sel_first]);
 
-            g->action_target = tf_ground | tf_entity;
-            if (g->target_ent == ent_id(g, ent))
-                g->action_target = tf_ground;
+            /* get the default right click action */
+            g->action_target = tf_ground;// | tf_entity;
+            //if (g->target_ent == id)
+            //    g->action_target = tf_ground;
             g->action = 0;
-            g->action_queue = 0;
+            g->action_queue = 3;
             g->action_alt = 0;
 
             priority = 0;
@@ -799,37 +836,21 @@ void game_button(game_t *g, int x, int y, int button, uint32_t state)
                 if (def(g, a)->priority <= priority)
                     continue;
 
-                if ((tf & tf_entity) && g->target_ent == ent_id(g, ent))
+                if ((tf & tf_entity) && g->target_ent == id)
                     tf &= ~tf_entity;
 
                 if (tf) {
                     priority = def(g, a)->priority;
                     g->action_target = def(g, a)->target;
                     g->action = (a - ent->ability) | 128;
-                    g->action_queue = def(g, a)->front_queue ? -1 : 0;
+                    g->action_queue = def(g, a)->front_queue ? 0 : 2;
                 }
             }
 
-            tf = (g->action_target & g->target);
-            if (tf) {
-                target = target_none;
-                if (tf & tf_entity) {
-                    target = target_ent;
-                } else if (tf & tf_ground) {
-                    target = target_pos;
-                    g->click = g->target_pos;
-                    g->click_time = g->time;
-                }
-
-                playvoice(g, ent, (g->action & 128) ? 2 : 1);
-                game_netorder(g, g->action, target, shift ? 1 : g->action_queue, g->action_alt);
-                g->action_target = 0;
-                setcursor(g, 0);
-                return;
-            }
+            do_action(g, ent);
         }
-
         g->action_target = 0;
+        setcursor(g, 0);
     }
 }
 

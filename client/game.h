@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <net.h>
+#include <array_client.h>
 #include "math.h"
 #include "view.h"
 #include "text.h"
@@ -9,6 +10,7 @@
 #include "audio.h"
 #include "gfx.h"
 #include "bind.h"
+#include "conn.h"
 #include "../server/defstruct.h"
 #include "../server/protocol.h"
 
@@ -58,18 +60,6 @@ typedef struct {
     ability_t ability[16];
     state_t state[64];
 } entity_t;
-
-enum {
-    conn_none,
-    conn_getinfo,
-    conn_connect,
-    conn_connected
-};
-
-typedef struct {
-    uint8_t max, len;
-    char *str;
-} input_t;
 
 typedef struct {
     playerdata_t d;
@@ -137,16 +127,9 @@ typedef struct {
 
     int width, height;
 
-    /* net */
-    int sock;
+    conn_t conn;
 
-    addr_t addr;
     uint32_t key, size, inflated;
-    uint8_t connected, rseq;
-    uint64_t lastrecv, timer;
-    uint16_t ckey;
-
-    /* map download */
     uint8_t *data;
     uint32_t parts_left;
     bool sent_lost;
@@ -159,60 +142,28 @@ typedef struct {
     int8_t action_queue;
     uint8_t action_alt;
 
-    uint32_t key_state;
-
     int8_t binding;
     uint16_t bind_id, map_id;
+    uint8_t bind_modifier;
 
     uint8_t keys[256];
     unsigned num_keys;
-
-    input_t input[2];
-    char addr_str[56], port_str[8];
-
-    uint32_t builtin_key[3];
-
-    /* packet data */
-    struct {
-        uint8_t id, seq, frame, flags;
-        uint8_t data[4096 - 4];
-    } packet;
-
-    /* sent messages history */
-    struct {
-        uint8_t *data;
-        int len;
-    } msg[256];
 
     /* defs */
     // : boundschecks?
     void* def[num_defs];
     char *text;
 
-    /* entities */
-    uint16_t nentity, id[65535];
-    entity_t entity[65535];
-
-    /* players */
-    uint8_t nplayer, pid[255];
-    player_t player[255];
+    array(entity_t, uint16_t, 65535) ent;
+    array(player_t, uint8_t, 255) player;
 
     /* tmp buffer (used for: texture loading, ..)*/
     uint8_t __attribute__ ((aligned (16))) tmp[256 * 256 * 4]; //tmp[4096 * 24];
 } game_t;
 
-extern const uint8_t builtin_target[];
-
 //#define entity_loop(g, ent, i) i = 0; while (ent = &g->entity[g->id[i]], ++i <= g->nentity)
 #define state_loop(ent, s, i) i = 0; while (s = &ent->state[ent->sid[i]], ++i <= ent->nstate)
 #define ability_loop(ent, a, i) i = 0; while (a = &ent->ability[ent->aid[i]], ++i <= ent->nability)
-#define ent_id(g, ent) ((ent) - (g)->entity)
-
-//TODO const versions
-#define for_player(g, name) for (player_t *name, *__i = 0; \
-    name = &g->player[g->pid[(size_t) __i]], (size_t) __i < g->nplayer; __i = (void*)((size_t) __i + 1))
-#define for_entity(g, name) for (entity_t *name, *__i = 0; \
-    name = &g->entity[g->id[(size_t) __i]], (size_t) __i < g->nentity; __i = (void*)((size_t) __i + 1))
 
 void game_netframe(game_t *g);
 void game_netorder(game_t *g, uint8_t order, uint8_t target, int8_t queue, uint8_t alt);
@@ -253,7 +204,6 @@ bool lockcursor(game_t *g, bool lock);
 bool thread(void (func)(void*), void *arg);
 void audio_thread(void *args);
 
-void game_action(game_t *g, uint8_t action_type, uint8_t action, int8_t queue, uint8_t alt);
 void game_mouseover(game_t *g);
 
 /* */
@@ -268,7 +218,7 @@ void game_keysym(game_t *g, uint32_t sym);
 void game_char(game_t *g, char *ch, int size);
 
 void game_motion(game_t *g, int x, int y);
-void game_button(game_t *g, int x, int y, int button, uint32_t state);
+void game_button(game_t *g, int x, int y, int button);
 void game_buttonup(game_t *g, int button);
 void game_wheel(game_t *g, double delta);
 

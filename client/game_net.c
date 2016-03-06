@@ -5,145 +5,6 @@
 #include <assert.h>
 #include <util.h>
 
-static uint8_t* write16(uint8_t *p, uint16_t val)
-{
-    memcpy(p, &val, 2);
-    return p + 2;
-}
-
-
-static void msg_send(game_t *g, const uint8_t *end)
-{
-    uint8_t seq, *p;
-    int len;
-
-    len = end - g->packet.data;
-
-    net_send(g->sock, &g->addr, &g->packet, 4 + len);
-    seq = g->packet.seq++;
-
-    assert(!g->msg[seq].data);
-
-    p = g->msg[seq].data = malloc(len);
-    g->msg[seq].len = len;
-
-    assert(p);
-
-    memcpy(p, g->packet.data, len);
-}
-
-static void conn_sendlost(game_t *g, uint8_t seq)
-{
-    uint8_t *p, sseq;
-    int len;
-
-    p = g->packet.data;
-    len = 0;
-    sseq = g->packet.seq;
-    g->packet.seq = seq;
-
-    while (seq != sseq) {
-        assert(g->msg[seq].data);
-
-        if (len + g->msg[seq].len > part_size) {
-            msg_send(g, p);
-
-            p = g->packet.data;
-            len = 0;
-        }
-
-        memcpy(p, g->msg[seq].data, g->msg[seq].len);
-        p += g->msg[seq].len;
-        len += g->msg[seq].len;
-
-        free(g->msg[seq].data);
-        g->msg[seq].data = NULL;
-        seq++;
-    }
-
-    msg_send(g, p);
-}
-
-static void directconnect(game_t *g, const addr_t *addr)
-{
-    uint32_t data[16];
-
-    if (!g->addr.family)
-        g->lastrecv = g->time;
-
-    g->timer = g->time;
-    g->addr.cmp = addr->cmp;
-
-    data[0] = ~0u;
-    net_send(g->sock, addr, data, sizeof(data));
-}
-
-void game_directconnect(game_t *g, const addr_t *addr)
-{
-    if (g->connected)
-        game_disconnect(g);
-
-    directconnect(g, addr);
-}
-
-static void send_connect(game_t *g, const addr_t *addr, uint32_t key)
-{
-    struct {
-        uint8_t ones;
-        uint8_t key[4];
-        uint8_t have_map, id;
-        uint8_t ckey[2];
-        uint8_t name[16];
-    } msg ;
-
-    if (!g->addr.family)
-        g->lastrecv = g->time;
-
-    g->timer = g->time;
-    g->key = key;
-    g->addr.cmp = addr->cmp;
-
-    msg.ones = 0xff;
-    memcpy(msg.key, &key, 4);
-    strcpy((char*) msg.name, "newbie");
-    msg.have_map = 0;
-    msg.id = 0xFF;
-    memcpy(msg.ckey, &g->ckey, 2);
-
-    net_send(g->sock, addr, &msg, sizeof(msg));
-}
-
-void game_connect(game_t *g, const addr_t *addr, uint32_t key)
-{
-    if (g->connected)
-        game_disconnect(g);
-
-	printf("%u %u\n", addr->ip, addr->port);
-
-    send_connect(g, addr, key);
-}
-
-void game_disconnect(game_t *g)
-{
-    int i;
-
-    if (g->loaded)
-        bind_save(&g->bind);
-
-    g->addr.family = 0;
-    g->key = 0;
-    g->connected = 0;
-    g->loaded = 0;
-    g->ckey = (g->ckey + 1) & 0x7FFF;
-
-    free(g->data);
-
-    for (i = 0; i < 256; i++)
-        free(g->msg[i].data), g->msg[i].data = 0;
-
-    printf("disconnected\n");
-}
-
 static uint8_t* readability(entity_t *ent, uint8_t *data, int *r_len, uint8_t val)
 {
     ability_t *a;
@@ -288,17 +149,17 @@ static int recvgframe(game_t *g, uint8_t msg, uint8_t *data, int len)
             return 0;
         val = *data++;
         delta = frame - val;
-		printf("delta: %u %u %u %u\n", delta, val, frame, g->packet.frame);
+		printf("delta: %u %u %u %u\n", delta, val, frame, g->conn.frame);
         assert(delta <= 220);
     }
 
-    if (msg != msg_reset && val != g->packet.frame) {
-        g->packet.flags ^= ctl_out;
-        net_send(g->sock, &g->addr, &g->packet, 4);
+    if (msg != msg_reset && val != g->conn.frame) {
+        g->conn.flags ^= ctl_out;
+        net_send(g->conn.sock, &g->conn.addr, &g->conn.id, 4);
         return 1;
     }
 
-    g->lastrecv = g->time;
+    g->conn.lastrecv = g->time;
 
     if (msg == msg_reset) {
         /* player info */
@@ -310,12 +171,14 @@ static int recvgframe(game_t *g, uint8_t msg, uint8_t *data, int len)
         if ((len -= size) < 0)
             return 0;
 
-        g->nplayer = 0;
+        array_reset(&g->player);
         while (val--) {
-            pl = &g->player[*data];
+            //TODO
+            pl = array_get(&g->player, *data);
+            array_add(&g->player, pl);
+
             memcpy(pl, data, sizeof(pl->d)); data += sizeof(pl->d);
             pl->status = 1;
-            g->pid[g->nplayer++] = pl->d.id;
         }
 
         if ((len -= 8) < 0)
@@ -325,11 +188,11 @@ static int recvgframe(game_t *g, uint8_t msg, uint8_t *data, int len)
         g->cam_pos = scale(vec2(coord.x, coord.y), 1.0 / 65536.0);
 
         /* reset entities */
-        for_entity(g, ent) {
+        array_for(&g->ent, ent) {
             entity_clear(g, ent);
             particle_clear(&g->particle);
         }
-        g->nentity = 0;
+        array_reset(&g->ent);
     } else {
         /* events */
         do {
@@ -342,10 +205,11 @@ static int recvgframe(game_t *g, uint8_t msg, uint8_t *data, int len)
                 if ((len -= sizeof(pl->d)) < 0)
                     return 0;
 
-                pl = &g->player[*data];
+                pl = array_get(&g->player, *data);
+                array_add(&g->player, pl);
+
                 memcpy(pl, data, sizeof(pl->d)); data += sizeof(pl->d);
                 pl->status = 1; //TODO
-                g->pid[g->nplayer++] = pl->d.id;
                 break;
 
             case ev_disconnect:
@@ -357,7 +221,7 @@ static int recvgframe(game_t *g, uint8_t msg, uint8_t *data, int len)
                 if (--len < 0)
                     return 0;
 
-                pl = &g->player[*data++];
+                pl = array_get(&g->player, *data++);
                 if (val & 1)
                     pl->status = 0;
                 else
@@ -387,7 +251,8 @@ static int recvgframe(game_t *g, uint8_t msg, uint8_t *data, int len)
                 if ((len -= 3) < 0)
                     return 0;
 
-                pl = &g->player[*data++];
+                pl = array_get(&g->player, *data++);
+
                 memcpy(&pl->gold, data, 2); data += 2;
                 break;
             case ev_chat:
@@ -400,7 +265,7 @@ static int recvgframe(game_t *g, uint8_t msg, uint8_t *data, int len)
         } while (val != ev_end);
 
         /* entity frame */
-        for_entity(g, ent)
+        array_for(&g->ent, ent)
             entity_netframe(g, ent, delta + 1);
 
         particle_netframe(&g->particle, delta + 1);
@@ -414,7 +279,7 @@ static int recvgframe(game_t *g, uint8_t msg, uint8_t *data, int len)
         memcpy(&id, data, 2); data += 2;
         val = *data++;
 
-        ent = &g->entity[id];
+        ent = array_get(&g->ent, id);
 
         if (!val) {
             entity_clear(g, ent);
@@ -424,7 +289,7 @@ static int recvgframe(game_t *g, uint8_t msg, uint8_t *data, int len)
         assert(((val & flag_spawn) != 0) == (ent->def < 0));
 
         if (ent->def < 0)
-            g->id[g->nentity++] = id;
+            array_add(&g->ent, ent);
 
         if (val & flag_info) {
             if ((len -= 7) < 0)
@@ -487,7 +352,7 @@ static int recvgframe(game_t *g, uint8_t msg, uint8_t *data, int len)
 
     /* update entity and player id list */
     j = 0;
-    for_entity(g, ent) {
+    array_for(&g->ent, ent) {
         if (ent->def < 0)
             continue;
 
@@ -498,26 +363,26 @@ static int recvgframe(game_t *g, uint8_t msg, uint8_t *data, int len)
             if (audio_move(&g->audio, ent->voice_sound, ent->pos))
                 ent->voice_sound = -1;
 
-        g->id[j++] = (ent - g->entity);
+        j = array_keep(&g->ent, ent, j);
     }
-    g->nentity = j;
+    array_update(&g->ent, j);
 
     j = 0;
-    for_player(g, pl) {
+    array_for(&g->player, pl) {
         if (pl->status < 0)
             continue;
 
-        g->pid[j++] = (pl - g->player);
+        j = array_keep(&g->player, pl, j);
     }
-    g->nplayer = j;
+    array_update(&g->player, j);;
 
     /* validate selection */
     for (j = 0, i = 0; i < g->nsel; i++)
-        if (g->entity[g->sel_ent[i]].def >= 0)
+        if (array_get(&g->ent, g->sel_ent[i])->def >= 0)
             g->sel_ent[j++] = g->sel_ent[i];
     g->nsel = j;
 
-    g->packet.frame = frame + 1;
+    g->conn.frame = frame + 1;
     return 1;
 }
 
@@ -526,6 +391,7 @@ static void recvframe(game_t *g, uint8_t *data, int len)
     int i, j;
     uint8_t seq, flags, *p;
     uint16_t part_id;
+    uint8_t buf[2 * 256];
 
     if ((len -= 2) < 0)
         return;
@@ -536,32 +402,25 @@ static void recvframe(game_t *g, uint8_t *data, int len)
     if (flags & ctl_notconn)
         return;
 
-    /* free confirmed messages */
-    while (g->rseq != seq) {
-        assert(g->msg[g->rseq].data);
-
-        free(g->msg[g->rseq].data);
-        g->msg[g->rseq].data = NULL;
-        g->rseq++;
-    }
+    g->conn.seq_c = seq;
 
     /* send lost messages */
-    if ((flags & ctl_in) != (g->packet.flags & ctl_in)) {
-        g->packet.flags ^= ctl_in;
-        conn_sendlost(g, seq);
+    if ((flags & ctl_in) != (g->conn.flags & ctl_in)) {
+        g->conn.flags ^= ctl_in;
+        conn_resend(&g->conn);
     }
 
-    if ((flags & ctl_out) != (g->packet.flags & ctl_out))
+    if ((flags & ctl_out) != (g->conn.flags & ctl_out))
         return;
 
     if ((flags & msg_bits) == msg_data) {
-        g->lastrecv = g->time;
+        g->conn.lastrecv = g->time;
 
         if (!g->parts_left)
             return;
 
-        if ((flags & ctl_missing) && !g->sent_lost) {
-            p = g->packet.data;
+        if (len == 2) {
+            p = buf;
             *p++ = msg_lost;
             *p++ = j = g->parts_left > 255 ? 255 : g->parts_left;
 
@@ -569,16 +428,16 @@ static void recvframe(game_t *g, uint8_t *data, int len)
                 if (!g->data[g->size + i])
                     p = write16(p, i), j--;
 
-            msg_send(g, p);
-            g->sent_lost = 1;
-        } else {
-            g->sent_lost = 0;
+            conn_send(&g->conn, buf, p - buf);
         }
 
         if ((len -= 2) < 0)
             return;
 
         memcpy(&part_id, data, 2); data += 2;
+
+        if (!len)
+            return;
 
         assert(part_id <= (g->size - 1) / part_size && len <= part_size);
         assert(len == part_size || part_id * part_size == g->size - len);
@@ -591,14 +450,10 @@ static void recvframe(game_t *g, uint8_t *data, int len)
                 printf("download complete\n");
                 loadmap(g);
 
-                p = g->packet.data;
-                *p++ = msg_lost;
-                *p++ = 0;
-                msg_send(g, p);
-
-                p = g->packet.data;
-                *p++ = msg_loaded;
-                msg_send(g, p);
+                buf[0] = msg_lost;
+                buf[1] = 0;
+                buf[2] = msg_loaded;
+                conn_send(&g->conn, buf, 3);
             }
         }
 
@@ -607,6 +462,27 @@ static void recvframe(game_t *g, uint8_t *data, int len)
 
     recvgframe(g, flags & msg_bits, data, len);
     //assert();
+}
+
+void game_directconnect(game_t *g, const addr_t *addr)
+{
+    conn_connect(&g->conn, addr, 0, g->time);
+}
+
+void game_connect(game_t *g, const addr_t *addr, uint32_t key)
+{
+    conn_connect(&g->conn, addr, key, g->time);
+}
+
+void game_disconnect(game_t *g)
+{
+    if (g->loaded)
+        bind_save(&g->bind);
+
+    g->loaded = 0;
+    free(g->data);
+
+    conn_disconnect(&g->conn);
 }
 
 void game_netframe(game_t *g)
@@ -628,18 +504,20 @@ void game_netframe(game_t *g)
         uint8_t data[65536];
     } buf;
 
-    while ((len = net_recv(g->sock, &addr, &buf, sizeof(buf))) >= 0) {
-        if (addr.cmp != g->addr.cmp)
+    while ((len = net_recv(g->conn.sock, &addr, &buf, sizeof(buf))) >= 0) {
+        if (addr.cmp != g->conn.addr.cmp || !g->conn.active)
             continue;
 
         if (buf.key & 0x8000) {
-            if (g->connected)
+            if (g->conn.connected)
                 continue;
 
-            if (len == 64 && !g->key)
-                send_connect(g, &addr, buf.key);
+            if (len == 64 && !g->conn.key) {
+                g->conn.key = buf.key;
+                send_connect(&g->conn, g->time);
+            }
 
-            if (len != 12 || (buf.ckey & 0x7FFF) != g->ckey ||
+            if (len != 12 || (buf.ckey & 0x7FFF) != g->conn.ckey ||
                 buf.inflated >= 0x1000000 || !buf.size || buf.size >= 0x800000)
                 continue;
 
@@ -650,15 +528,15 @@ void game_netframe(game_t *g)
 
             memset(data + buf.size, 0, parts);
 
-            g->packet.id = buf.id;
-            g->packet.seq = 0;
-            g->packet.frame = 0;
-            g->packet.flags = 0;
+            g->conn.id = buf.id;
+            g->conn.seq_out = 0;
+            g->conn.frame = 0;
+            g->conn.flags = 0;
 
             g->fps = buf.fps;
-            g->rseq = 0;
-            g->connected = 1;
-            g->lastrecv = g->timer = g->time;
+            g->conn.seq_c = 0;
+            g->conn.connected = 1;
+            g->conn.lastrecv = g->conn.timer = g->time;
 
             g->size = buf.size;
             g->inflated = buf.inflated;
@@ -669,59 +547,67 @@ void game_netframe(game_t *g)
             continue;
         }
 
-        if ((len -= 2) >= 0 && g->connected && buf.ckey == g->ckey)
+        if ((len -= 2) >= 0 && g->conn.connected && buf.ckey == g->conn.ckey)
             recvframe(g, buf.data + 2, len);
     }
 
-    if (!g->addr.family)
-        return;
-
-    if (time_msec(g->time - g->lastrecv) >= 10000) //note: needs to be lower with fps > 20
+    if (!conn_frame(&g->conn, g->time))
         game_disconnect(g);
-
-    if (time_msec(g->time - g->timer) >= 200) {
-        g->timer = g->time;
-
-        if (!g->key)
-            directconnect(g, &g->addr);
-        else if (!g->connected)
-            send_connect(g, &g->addr, g->key);
-        else
-            net_send(g->sock, &g->addr, &g->packet, 4);
-    }
 }
 
 void game_netorder(game_t *g, uint8_t order, uint8_t target, int8_t queue, uint8_t alt)
 {
-    uint8_t *p;
+    struct {
+        uint8_t msg;
+        uint8_t count;
+        uint8_t queue;
+        uint8_t order;
+        uint8_t target_type;
+        uint8_t alt;
+        union {
+            struct {
+                uint8_t target_pos[8];
+                uint16_t ent0[255];
+            };
+            struct {
+                uint16_t target_ent;
+                uint16_t ent1[255];
+            };
+            struct {
+                uint16_t ent2[255];
+            };
+        };
+    } msg;
 
-    p = g->packet.data;
-    *p++ = msg_order;
-    *p++ = g->nsel;
-    *p++ = queue;
-    *p++ = order;
-    *p++ = target;
-    *p++ = alt;
+    uint16_t *ent;
+    unsigned size;
 
-    if (target == target_pos)
-        memcpy(p, &g->target_pos, 8), p += 8;
-    else if (target == target_ent)
-        memcpy(p, &g->target_ent, 2), p += 2;
+    msg.msg = msg_order;
+    msg.count = g->nsel;
+    msg.queue = queue | ((g->bind.mod & 1) ? 128 : 0);
+    msg.order = order;
+    msg.target_type = target;
+    msg.alt = alt;
 
-    memcpy(p, g->sel_ent, g->nsel * 2); p += g->nsel * 2;
+    if (target == target_pos) {
+        memcpy(msg.target_pos, &g->target_pos, 8);
+        ent = msg.ent0;
+    } else if (target == target_ent) {
+        msg.target_ent = g->target_ent;
+        ent = msg.ent1;
+    } else {
+        ent = msg.ent2;
+    }
 
-    msg_send(g, p);
+    memcpy(ent, g->sel_ent, g->nsel * 2);
+    size = (uint8_t*) ent - &msg.msg + g->nsel * 2;
+
+    conn_send(&g->conn, &msg, size);
 }
 
 bool game_netinit(game_t *g)
 {
-    g->sock = net_sock_nb();
-    if (g->sock < 0)
-        return 0;
-
-    g->ckey = (time(0) & 0x7FFF);
-
-    return 1;
+    return conn_init(&g->conn);
 }
 
 //TODO entity replacement

@@ -3,12 +3,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-uint8_t* write16(uint8_t *p, uint16_t val)
-{
-    memcpy(p, &val, 2);
-    return p + 2;
-}
-
 bool cmpbit(uint8_t a, uint8_t b, uint8_t bit)
 {
     return (a & bit) != (b & bit);

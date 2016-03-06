@@ -26,11 +26,6 @@ enum {
     button_left = 0,
     button_middle = 1,
     button_right = 2,
-
-    shift_mask = ShiftMask,
-    lock_mask = LockMask,
-    ctrl_mask = ControlMask,
-    alt_mask = Mod1Mask,
 };
 
 #else
@@ -118,11 +113,6 @@ enum {
     button_left = 0,
     button_middle = 6,
     button_right = 3,
-
-    shift_mask = 0,
-    lock_mask = 0,
-    ctrl_mask = 0,
-    alt_mask = 0,
 };
 
 #endif

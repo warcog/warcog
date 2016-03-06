@@ -1,4 +1,5 @@
 #include "util.h"
+#include <string.h>
 
 #ifdef WIN32
 #include <windows.h>
@@ -78,4 +79,10 @@ bool dp_expect(data_t *p, size_t len)
 bool dp_empty(data_t *p)
 {
     return !p->len;
+}
+
+uint8_t* write16(uint8_t *p, uint16_t val)
+{
+    memcpy(p, &val, 2);
+    return p + 2;
 }

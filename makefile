@@ -78,7 +78,7 @@ else
 flags+=-g
 endif
 
-shared=net
+shared=net util
 src=$(wildcard $(path)/*.c) $(wildcard $(path)/$(target)/*.c) $(addsuffix .c,$(addprefix shared/,$(sort $(shared))))
 dep=$(wildcard $(path)/*.h) $(wildcard $(path)/$(target)/*.h) $(addsuffix .h,$(addprefix shared/,$(sort $(shared))))
 
@@ -112,8 +112,6 @@ endif
 
 chatclient : path = chatclient
 chatclient : src += tmp/res.res
-
-client chatclient: shared += util
 
 server : path = server
 server : fps ?= 60

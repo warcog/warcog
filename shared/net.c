@@ -8,13 +8,12 @@
 #else
 #include <sys/socket.h>
 #include <netdb.h>
+#include <unistd.h>
 #endif
-
-//static int i;
 
 int net_send(int sock, const addr_t *addr, const void *data, int len)
 {
-    //if (!(i++ & 3))
+    //if (!(rand() & 7))
     //    return -1;
 
     return sendto(sock, data, len, 0, (struct sockaddr*) addr, sizeof(*addr));
@@ -22,7 +21,7 @@ int net_send(int sock, const addr_t *addr, const void *data, int len)
 
 int net_sendmsg(int sock, const addr_t *addr, netbuf_t *buf, int num_buf)
 {
-    //if (!(i++ & 3))
+    //if (!(rand() & 7))
     //    return -1;
 
     #ifdef WIN32

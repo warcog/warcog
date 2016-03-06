@@ -1,6 +1,7 @@
 #include "entity.h"
 #include <string.h>
 #include "protocol.h"
+#include <util.h>
 #include "util.h"
 
 static uint8_t* write(uint8_t *p, const void *data, int len)

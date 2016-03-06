@@ -243,13 +243,13 @@ static bool xlib_events(game_t *g, XIC ic)
 {
     XEvent event;
     unsigned i, j;
+    char buf[32];
 
     while (XPending(display)) {
         XNextEvent(display, &event);
         switch(event.type) {
         case KeyPress: {
             XKeyEvent *ev = &event.xkey;
-            char buf[32];
             Status status;
             int res;
             KeySym sym;
@@ -294,8 +294,14 @@ static bool xlib_events(game_t *g, XIC ic)
             if (ev->button < Button1)
                 break;
 
+            XQueryKeymap(display, buf);
+            for (i = 0, j = 0; i < 256; i++)
+                if (buf[i / 8] & (1 << (i & 7)))
+                    g->keys[j++] = i;
+            g->num_keys = j;
+
             if (ev->button <= Button3)
-                game_button(g, ev->x, ev->y, ev->button - Button1, ev->state);
+                game_button(g, ev->x, ev->y, ev->button - Button1);
             else if (ev->button <= Button5)
                 game_wheel(g, (ev->button == Button4) ? 1.0 : -1.0);
 

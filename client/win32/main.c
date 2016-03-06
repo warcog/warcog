@@ -135,7 +135,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
     case WM_LBUTTONDOWN:
     case WM_RBUTTONDOWN:
     case WM_MBUTTONDOWN:
-        game_button(&game, x, y, msg - WM_LBUTTONDOWN, 0);
+        game_button(&game, x, y, msg - WM_LBUTTONDOWN);
         break;
     case WM_LBUTTONUP:
     case WM_RBUTTONUP:

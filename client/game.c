@@ -3,8 +3,6 @@
 #include "keycodes.h"
 #include <stdio.h>
 
-const uint8_t builtin_target[] = {tf_ground | tf_entity, tf_none, tf_none};
-
 //TODO: dont play sounds at feet
 
 static uint16_t seffect(const game_t *g, const state_t *s)
@@ -174,20 +172,6 @@ void entity_clear(game_t *g, entity_t *ent)
     //memset(ent, 0, sizeof(*ent));
 }
 
-void game_action(game_t *g, uint8_t target, uint8_t action, int8_t queue, uint8_t alt)
-{
-    if (target & tf_none) {
-        game_netorder(g, action, target_none, (g->key_state & shift_mask) ? 1 : queue, alt);
-        return;
-    }
-
-    g->action_target = target;
-    g->action = action;
-    g->action_queue = g->action_queue;
-    g->action_alt = alt;
-    setcursor(g, cursor_target);
-}
-
 struct arg {
     game_t *g;
     vec3 pos, ray, ray_inv;
@@ -234,7 +218,7 @@ void game_mouseover(game_t *g)
     ray_inv = inv(ray);
 
     d = INFINITY;
-    for_entity(g, ent) {
+    array_for(&g->ent, ent) {
         def = def(g, ent);
 
         if (!(def->uiflags & ui_target))
@@ -247,7 +231,7 @@ void game_mouseover(game_t *g)
         if (f < d) {
             d = f;
             g->target = tf_entity;
-            g->target_ent = ent_id(g, ent);;
+            g->target_ent = array_id(&g->ent, ent);
         }
     }
 

@@ -84,7 +84,48 @@ void bind_save(bindlist_t *b)
     b->extra = 0;
 }
 
-bool bind_match(bind_t b, unsigned key, uint8_t *keys, unsigned num_key)
+uint8_t bind_ismodifier(bindlist_t *b, uint8_t key)
 {
-    return (key == b.trigger && num_key == b.num_key && !memcmp(keys, b.keys, num_key));
+    unsigned i;
+
+    for (i = 0; i < countof(b->modifier); i++)
+        if (key == b->modifier[i])
+            return (1 << i);
+    return 0;
+}
+
+void bind_update_modifiers(bindlist_t *b, uint8_t *keys, unsigned num_key)
+{
+    unsigned i;
+
+    b->mod = 0;
+    for (i = 0; i < num_key; i++)
+        b->mod |= bind_ismodifier(b, keys[i]);
+}
+
+unsigned bind_match(bindlist_t *b, unsigned id, uint8_t key, uint8_t *keys, unsigned num_key)
+{
+    unsigned i, j, k, res;
+    bind_t *p;
+
+    p = &b->data[id];
+
+    if (key != p->trigger)
+        return ~0u;
+
+    res = 0;
+    for (i = 0, j = 0; i < num_key && j < p->num_key; i++) {
+        if (keys[i] != p->keys[j]) {
+            for (k = 0; keys[i] != b->modifier[k]; )
+                if (++k == countof(b->modifier))
+                    res++;
+            continue;
+        }
+        j++;
+    }
+
+    if (j != p->num_key)
+        return ~0u;
+
+    return res;
 }

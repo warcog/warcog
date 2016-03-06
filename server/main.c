@@ -9,6 +9,7 @@
 //#include "game2.h"
 //#include "gamedata.h"
 #include "protocol.h"
+#include <util.h>
 #include "util.h"
 #include "game.h"
 
@@ -317,10 +318,9 @@ static void recvmsgs(game_t *g, client_t *cl, const uint8_t *data, int len)
             {
                 order_t order;
                 uint16_t id;
-                int8_t queue;
                 entity_t *ent;
 
-                queue = *data++;
+                order.queue = *data++;
 
                 order.id = *data++;
                 order.target_type = *data++;
@@ -355,21 +355,26 @@ static void recvmsgs(game_t *g, client_t *cl, const uint8_t *data, int len)
                     if (ent->def < 0 || ent->owner != cl_id(g, cl) || !def(ent)->control)
                         continue;
 
-                    if (!queue) { /* no queue */
-                        ent->order[0] = order;
-                        ent->norder = 1;
-                    } else if (queue < 0) { /* front queue */
+                    //TODO
+                    if (order.queue & 128)
+                        for (j = 0; j < ent->norder && order.queue >= ent->order[j].queue; j++);
+                    else
+                        for (j = 0; j < ent->norder && order.queue > ent->order[j].queue; j++);
+
+                    if (j == 16)
+                        continue;
+
+                    if (order.queue & 1 && !(order.queue & 128)) {
+                        ent->norder = j;
+                    } else {
                         if (ent->norder == 16)
                             ent->norder--;
 
-                        memmove(ent->order + 1, ent->order, ent->norder * sizeof(*ent->order));
-                        ent->order[0] = order;
-                        ent->norder++;
-                    } else { /* back queue */
-                        if (ent->norder == 16)
-                            continue;
-                        ent->order[ent->norder++] = order;
+                        memmove(&ent->order[j + 1], &ent->order, (ent->norder-j) * sizeof(order_t));
                     }
+
+                    ent->order[j] = order;
+                    ent->norder++;
                 }
             }
             break;
@@ -583,6 +588,7 @@ static int entityorderframe(game_t *g, entity_t *ent, order_t *order)
             if (cast.cast_time)
                 setanim(g, ent, cast.anim, cast.anim_time, 1, 0);
             order->timer = cast.cast_time;
+            order->queue &= ~1;
 
             for (i = 0; i < ent->nability; i++)
                 ability_onabilitystart(g, ent, &ent->ability[i], a, t);
@@ -621,6 +627,7 @@ static int entityorderframe(game_t *g, entity_t *ent, order_t *order)
         return 0;
     case 1: /* stop */
     case 2: /* hold */
+        setanim(g, ent, anim_idle, def(ent)->idle_time, 0, 0);
     default:
         return 0;
     }
@@ -659,6 +666,8 @@ static void entityframe(game_t *g, entity_t *ent)
         ent->anim.frame++;
 
     for (i = 0, j = 0, acted = 0; i < ent->norder; i++) {
+        if (acted)
+            ent->order[i].timer = 0;
         res = acted ? 1 : entityorderframe(g, ent, &ent->order[i]);
         acted = (res >= 0);
         if (res > 0)

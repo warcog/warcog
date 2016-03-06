@@ -9,7 +9,7 @@
 //dont polute with windows headers
 typedef struct {unsigned long len; char *buf;} netbuf_t; //WSABUF
 #else
-#include <unistd.h>
+#include <sys/uio.h>
 typedef struct iovec netbuf_t;
 #endif
 

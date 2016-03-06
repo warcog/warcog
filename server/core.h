@@ -88,7 +88,7 @@ typedef struct {
 } target_t;
 
 typedef struct {
-    uint8_t id;
+    uint8_t id, queue;
     uint16_t timer;
     uint8_t target_type, alt;
     union {

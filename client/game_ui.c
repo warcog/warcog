@@ -247,13 +247,13 @@ vert2d_t* gameui(game_t *g, vert2d_t *v)
     font = &g->font[font_ui];
     font_big = &g->font[font_ui_big];
 
-    if (g->binding)
+    if (g->binding || g->bind_modifier)
         v = text_draw_centered(v, font_big, "Enter a key", 0, sw, (sh - font_big->y) / 2, white);
 
     icon_w = div(sh * 64, 1080);
 
     /* health bars */
-    for_entity(g, ent) {
+    array_for(&g->ent, ent) {
         vec4 p;
         float x, y, w, h;
         ivec2 s, t;
@@ -281,7 +281,7 @@ vert2d_t* gameui(game_t *g, vert2d_t *v)
     /* selected unit (health, mana, abilities, states, etc) */
 
     tooltip.name = 0;
-    ent = g->nsel ? &g->entity[g->sel_ent[g->sel_first]] : 0;
+    ent = g->nsel ? array_get(&g->ent, g->sel_ent[g->sel_first]) : 0;
 
     fill_slots(slot, g, ent);
 
@@ -376,7 +376,7 @@ vert2d_t* gameui(game_t *g, vert2d_t *v)
     x = sw - 5 * k;
     y = sh - k;
     for (i = 1; i < g->nsel; i++, x -= k) {
-        ent = &g->entity[g->sel_ent[(g->sel_first + i) % g->nsel]];
+        ent = array_get(&g->ent, g->sel_ent[(g->sel_first + i) % g->nsel]);
         if (mouse_in(g, x, y, k, k)) {
             tooltip.icon = def(g, ent)->icon;
             tooltip.name = g->text + def(g, ent)->tooltip.name;
@@ -459,7 +459,7 @@ static bool gameui_click(game_t *g, unsigned button)
 
     icon_w = div(sh * 64, 1080);
 
-    ent = g->nsel ? &g->entity[g->sel_ent[g->sel_first]] : 0;
+    ent = g->nsel ? array_get(&g->ent, g->sel_ent[g->sel_first]) : 0;
 
     fill_slots(slot, g, ent);
 
@@ -568,7 +568,7 @@ static void gameui_release(game_t *g, unsigned button)
 
     icon_w = div(sh * 64, 1080);
 
-    ent = g->nsel ? &g->entity[g->sel_ent[g->sel_first]] : 0;
+    ent = g->nsel ? array_get(&g->ent, g->sel_ent[g->sel_first]) : 0;
 
     fill_slots(slot, g, ent);
 
@@ -581,17 +581,9 @@ static void gameui_release(game_t *g, unsigned button)
         if ((slot[i].type & 1) && mouse_in(g, x, y, k, k) && g->slot_down == i) {
             if (slot[i].type & 2) {
                 a = &ent->ability[slot[i].action];
-                if (button == button_middle)
-                    g->binding = 1, g->bind_id = a->def;
-                else
-                    game_action(g, def(g, a)->target, (a - ent->ability) | 128,
-                                def(g, a)->front_queue ? -1 : 0, (state & alt_mask) ? 1 : 0);
+                g->binding = 1, g->bind_id = a->def;
             } else {
-                if (button == button_middle)
-                    g->binding = -1, g->bind_id = slot[i].action;
-                else
-                    game_action(g, builtin_target[slot[i].action], slot[i].action, 0,
-                                (state & alt_mask) ? 1 : 0);
+                g->binding = -1, g->bind_id = slot[i].action;
             }
         }
     }

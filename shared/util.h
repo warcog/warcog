@@ -32,4 +32,6 @@ void* dp_next(data_t *p, size_t len); /* advance */
 bool dp_expect(data_t *p, size_t len); /* reduce size */
 bool dp_empty(data_t *p);
 
+uint8_t* write16(uint8_t *p, uint16_t val);
+
 #endif
