@@ -156,7 +156,7 @@ tmp/text.c tmp/text.h : $(map)/text
 	$(python) server/tools/maketext.py $(map)/text tmp/
 
 tmp/gen.c tmp/gen.h tmp/functions.h : server/tools/gen.py $(wildcard $(map)/src/*)
-	$(python) server/tools/gen.py tmp/ $(wildcard $(map)/src/*)
+	$(python) server/tools/gen.py tmp/ $(map) $(wildcard $(map)/src/*)
 
 tmp/defs : $(wildcard $(map)/*.h) server/defstruct.h tmp/gen.c $(map)/tilemap
 	$(python) server/tools/makedata0.py $(map)/tilemap tmp/data.h

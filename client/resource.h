@@ -28,7 +28,6 @@ typedef struct {
 } sound_t;
 
 bool read_file(data_t *data, const char *path, size_t min_size) use_result;
-void close_file(data_t *data);
 
 bool read_texture_file(texfile_t *file, const char *path) use_result;
 void close_texture_file(texfile_t *file);

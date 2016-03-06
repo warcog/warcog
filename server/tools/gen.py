@@ -16,7 +16,7 @@ def readblock(x):
             k = k + 1
     raise ValueError('no closing } to block')
 
-assert(len(sys.argv) >= 3)
+assert(len(sys.argv) >= 4)
 
 head = ''
 code = ''
@@ -83,7 +83,7 @@ function = [
 data = [{}, {}, {}, {}]
 effcount = [0, 0, 0, 0, 0, 0]
 
-for path in sys.argv[2:]:
+for path in sys.argv[3:]:
     f = open(path, 'r')
     a = f.read().strip()
     f.close()
@@ -186,6 +186,14 @@ for i, d in enumerate(function):
 
 code += '#endif\n'
 
+hashes = []
+
+def hash_name(s):
+    res = [0, 0]
+    for i, c in enumerate(s):
+        res[i & 1] += ord(c)
+    return (res[0] & 0xFF) | ((res[1] & 0xFF) << 8)
+
 for i, d in enumerate(data[:3]):
     for key, g in d.items():
         if 'server:' in g[3]:
@@ -193,6 +201,13 @@ for i, d in enumerate(data[:3]):
         else:
             a = g[3]
             b = ''
+
+        if i == 1:
+            h = hash_name(g[0])
+            if h in hashes:
+                raise ValueError('duplicate hash')
+            hashes += [h]
+            a = ('.hash = %u, ' % h) + a
 
         p = ('%s_%s_info' % (typen[i], g[2])) if g[2] else ''
         code += '#define %s_%s_info %s %s\n' % (typen[i], g[0], p, a)
@@ -238,7 +253,7 @@ for key, g in data[i].items():
 code += '};\n'
 
 
-code += 'const mapdef_t mapdef = {.size = map_shift,.ndef = {\n'
+code += 'const mapdef_t mapdef = {.size = map_shift,.map_id=%u,.ndef = {\n' % hash_name(sys.argv[2])
 for s in (typen + effn):
     code += ('countof(%sdef),' % s)
 code += '},\n'

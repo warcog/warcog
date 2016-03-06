@@ -191,7 +191,7 @@ bool text_rasterize(font_t *font, void *buffer, unsigned height)
 
     res = render(data, raster, &bitmap, &atlas, font, sizes, num_font);
 
-    close_file(&data);
+    free(data.data);
     return res;
 }
 

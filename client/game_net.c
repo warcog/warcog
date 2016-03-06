@@ -127,6 +127,9 @@ void game_disconnect(game_t *g)
 {
     int i;
 
+    if (g->loaded)
+        bind_save(&g->bind);
+
     g->addr.family = 0;
     g->key = 0;
     g->connected = 0;

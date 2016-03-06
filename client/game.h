@@ -8,6 +8,7 @@
 #include "particle.h"
 #include "audio.h"
 #include "gfx.h"
+#include "bind.h"
 #include "../server/defstruct.h"
 #include "../server/protocol.h"
 
@@ -58,10 +59,6 @@ typedef struct {
     state_t state[64];
 } entity_t;
 
-/** **/
-
-//#define msec(x) ((uint64_t)(x) * 1000000)
-
 enum {
     conn_none,
     conn_getinfo,
@@ -104,6 +101,7 @@ typedef struct {
     map_t map;
     psystem_t particle;
     audio_t audio;
+    bindlist_t bind;
 
     double pan_edge, pan_mouse, pan_key;
 
@@ -163,13 +161,14 @@ typedef struct {
 
     uint32_t key_state;
 
-    int8_t bind;
-    uint16_t bind_id;
+    int8_t binding;
+    uint16_t bind_id, map_id;
+    uint8_t keys_down[255], keys_num;
 
     input_t input[2];
     char addr_str[56], port_str[8];
 
-    uint32_t slot_key[12], builtin_key[3];
+    uint32_t builtin_key[3];
 
     /* packet data */
     struct {
@@ -219,7 +218,7 @@ bool game_netinit(game_t *g);
 
 vert2d_t* gameui(game_t *g, vert2d_t *v);
 
-bool game_ui_click(game_t *g);
+bool game_ui_click(game_t *g, int button);
 bool ui_move(game_t *g, int dx, int dy);
 void ui_buttonup(game_t *g, int button);
 bool ui_wheel(game_t *g, double delta);

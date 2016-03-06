@@ -155,6 +155,10 @@ void loadmap(game_t *g)
     for (i = 0; i < num_defs - 1; i++)
         g->def[i + 1] = g->def[i] + mapdef->ndef[i] * def_sizes[i];
 
+    /* */
+    g->map_id = mapdef->map_id;
+    bind_init(&g->bind, g->def[ability], mapdef->ndef[ability], mapdef->map_id);
+
     /* text */
     if (advance(mapdef->textlen))
         goto fail_text;
@@ -280,8 +284,8 @@ void loadmap(game_t *g)
     gfx_render_minimap(&g->gfx, (g->height * 256 + 540) / 1080);
 
     /* */
-    close_file(&models);
-    close_file(&sounds);
+    free(models.data);
+    free(sounds.data);
     close_texture_file(&textures);
     free(data);
 
@@ -290,9 +294,9 @@ void loadmap(game_t *g)
     return;
 
 fail_load_tileset:
-    close_file(&models);
+    free(models.data);
 fail_read_models:
-    close_file(&sounds);
+    free(sounds.data);
 fail_read_sounds:
     close_texture_file(&textures);
 fail_read_textures:
@@ -542,6 +546,8 @@ void game_exit(game_t *g)
 
     if (g->loaded)
         map_free(&g->map);
+
+    game_disconnect(g);
 }
 
 #include "keycodes.h"
@@ -550,53 +556,79 @@ void game_keydown(game_t *g, uint32_t key)
 {
     const entity_t *ent;
     const ability_t *a;
-    int i;
+    unsigned i;
+    bind_t b;
 
-    /*if (g->input_id >= 0)
-        return; */
-
-    if (g->bind) {
-        if (g->bind < 0)
-            g->builtin_key[g->bind_id] = key;
-        else
-            idef(g, ability, g->bind_id)->key = key;
-
-        g->bind = 0;
+    if (key >= 255)
         return;
-    }
 
-    if (!g->nsel)
-        return;
+    if (g->nsel) {
 
     ent = &g->entity[g->sel_ent[g->sel_first]];
 
-    for (i = 0; i < 3; i++) {
+    /*for (i = 0; i < 3; i++) {
         if (key == g->builtin_key[i]) {
             game_action(g, builtin_target[i], i, 0, (g->key_state & alt_mask) ? 1 : 0);
             return;
         }
-    }
+    }*/
 
     ability_loop(ent, a, i) {
-        if (key == def(g, a)->key) {
+        b = g->bind.data[a->def];
+        if (bind_match(b, key, g->keys_down, g->keys_num)) {
             game_action(g, def(g, a)->target, (a - ent->ability) | 128,
                         def(g, a)->front_queue ? -1 : 0, (g->key_state & alt_mask) ? 1 : 0);
-            return;
+            break;
         }
+    }
     }
 
-    for (i = 0; i < 12; i++) {
-        if (key == g->slot_key[i]) {
-            printf("not implemented\n");
-            return;
-        }
-    }
+    for (i = 0; i < g->keys_num; i++)
+        if (key == g->keys_down[i])
+            break;
+
+    if (i == g->keys_num)
+        g->keys_down[g->keys_num++] = key;
 }
 
 void game_keyup(game_t *g, uint32_t key)
 {
-    (void) g;
-    (void) key;
+    unsigned i, j, id;
+    bind_t b;
+
+    if (key >= 255)
+        return;
+
+    for (i = 0, j = 0; i < g->keys_num; i++)
+        if (key != g->keys_down[i])
+            g->keys_down[j++] = g->keys_down[i];
+    assert(j + 1 == g->keys_num);
+    g->keys_num = j;
+
+    if (!g->binding)
+        return;
+
+    b.map = g->map_id;
+    b.info = 0;
+    if (g->binding < 0) {
+        b.info |= bind_builtin;
+        b.ability = g->bind_id;
+        id = 0x8000 | g->bind_id;
+    } else {
+        b.ability = idef(g, ability, g->bind_id)->hash;
+        id = g->bind_id;
+    }
+
+    j = g->keys_num > 2 ? 2 : g->keys_num;
+    b.info |= j;
+    for (i = 0; i < j; i++)
+        b.keys[i] = g->keys_down[i];
+    b.keys[2] = key;
+    bind_set(&g->bind, id, b);
+
+    printf("%u %u %u\n", id, b.info, b.keys[2]);
+
+    g->binding = 0;
 }
 
 void game_keysym(game_t *g, uint32_t sym)
@@ -769,10 +801,10 @@ void game_button(game_t *g, int x, int y, int button, uint32_t state)
     assert(x >= 0 && x < g->width);
     assert(y >= 0 && y < g->height);
 
-    if (button == button_left) {
-        if (game_ui_click(g))
+    if (game_ui_click(g, button))
             return;
 
+    if (button == button_left) {
         if (g->nsel) {
             ent = &g->entity[g->sel_ent[g->sel_first]];
 

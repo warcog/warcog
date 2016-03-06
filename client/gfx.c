@@ -1,5 +1,6 @@
 #include "gfx.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <assert.h>
 
@@ -19,8 +20,6 @@ void swap_buffers(void);
 #define GL_GLEXT_PROTOTYPES
 #include <GL/gl.h>
 #endif
-
-#include <stdlib.h>
 
 static void debug_infolog(GLuint shader, const char *data)
 {
@@ -1058,8 +1057,7 @@ static void pipelines(gfx_t *g)
             vk_destroy(g->device, stage[j].module);
     }
 
-    file.data = data;
-    close_file(&file);
+    free(data);
 }
 
 static VkResult set_framebuffers(gfx_t *g, unsigned w, unsigned h)

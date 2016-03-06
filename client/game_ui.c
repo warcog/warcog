@@ -247,7 +247,7 @@ vert2d_t* gameui(game_t *g, vert2d_t *v)
     font = &g->font[font_ui];
     font_big = &g->font[font_ui_big];
 
-    if (g->bind)
+    if (g->binding)
         v = text_draw_centered(v, font_big, "Enter a key", 0, sw, (sh - font_big->y) / 2, white);
 
     icon_w = div(sh * 64, 1080);
@@ -435,8 +435,12 @@ vert2d_t* gameui(game_t *g, vert2d_t *v)
     return v;
 }
 
-static bool gameui_click(game_t *g)
+static bool gameui_click(game_t *g, unsigned button)
 {
+    if (button == button_right)
+        return 0;
+
+
     int i;
     const entity_t *ent;
     const font_t *font;
@@ -548,7 +552,7 @@ void gameui_move(game_t *g, int dx, int dy)
     }
 }
 
-static void gameui_release(game_t *g)
+static void gameui_release(game_t *g, unsigned button)
 {
     int i;
     const entity_t *ent;
@@ -577,14 +581,14 @@ static void gameui_release(game_t *g)
         if ((slot[i].type & 1) && mouse_in(g, x, y, k, k) && g->slot_down == i) {
             if (slot[i].type & 2) {
                 a = &ent->ability[slot[i].action];
-                if ((g->key_state & shift_mask) && (g->key_state & ctrl_mask))
-                    g->bind = 1, g->bind_id = a->def;
+                if (button == button_middle)
+                    g->binding = 1, g->bind_id = a->def;
                 else
                     game_action(g, def(g, a)->target, (a - ent->ability) | 128,
                                 def(g, a)->front_queue ? -1 : 0, (state & alt_mask) ? 1 : 0);
             } else {
-                if ((g->key_state & shift_mask) && (g->key_state & ctrl_mask))
-                    g->bind = -1, g->bind_id = slot[i].action;
+                if (button == button_middle)
+                    g->binding = -1, g->bind_id = slot[i].action;
                 else
                     game_action(g, builtin_target[slot[i].action], slot[i].action, 0,
                                 (state & alt_mask) ? 1 : 0);
@@ -602,10 +606,10 @@ void gameui_reset(game_t *g)
     g->minimap_down = 0;
 }
 
-bool game_ui_click(game_t *g)
+bool game_ui_click(game_t *g, int button)
 {
     if (g->loaded)
-        return gameui_click(g);
+        return gameui_click(g, button);
     return 1;
 }
 
@@ -621,8 +625,7 @@ bool ui_move(game_t *g, int dx, int dy)
 
 void ui_buttonup(game_t *g, int button)
 {
-    if (button == 0)
-        gameui_release(g);
+    gameui_release(g, button);
 }
 
 bool ui_wheel(game_t *g, double delta)

@@ -1,3 +1,6 @@
+#ifndef DEFSTRUCT_H
+#define DEFSTRUCT_H
+
 #include <stdint.h>
 
 enum {
@@ -7,6 +10,7 @@ enum {
 
 typedef struct __attribute__ ((aligned (8))) {
     uint8_t size;
+    uint16_t map_id;
 
     uint16_t ndef[num_defs];
     uint32_t textlen;
@@ -60,9 +64,9 @@ typedef struct __attribute__ ((aligned (8))) {
 
     uint8_t target, target_group;
 
-    tooltip_t tooltip;
+    uint16_t hash;
 
-    uint32_t key; //
+    tooltip_t tooltip;
 } abilitydef_t;
 
 typedef struct  __attribute__ ((aligned (8))) {
@@ -133,3 +137,5 @@ typedef struct {
 typedef struct __attribute__ ((aligned (8))) {
     effectsub_t sub[4];
 } effectdef_t;
+
+#endif
